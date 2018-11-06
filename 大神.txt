@@ -3545,7 +3545,7 @@ standby   1  preempt
 	[root@web2 ~]# cd /tmp
 	[root@web2 ~]# svn --username harry --password 123456 \
 	> co svn://192.168.2.100/ code
-	[root@web1 ~]# cd code
+	[root@web1 ~]# cd codFe
 	[root@web2 ~]# cd code
 	2) harry和tom修改不同的文件
 	[root@web1 mycode]# sed -i "3a ###tom modify#####"  tmp.mount
@@ -3589,14 +3589,38 @@ standby   1  preempt
 	[root@web1 ~]# svnadmin create /var/svn/project2               //新建空仓库
 	[root@web1 ~]# svnadmin dump /var/svn/project > project.bak  //备份
 	[root@web1 ~]# svnadmin load /var/svn/project2 < project.bak      //还原
-
-
-
-
-
-
-
-
+3 案例3：制作nginx的RPM包
+	步骤一：安装rpm-build软件
+	1）安装rpm-build软件包
+	[root@web1 ~]# yum -y install  rpm-build
+	2）生成rpmbuild目录结构
+	[root@web1 ~]# rpmbuild -ba nginx.spec                //会报错，没有文件或目录
+	[root@web1 ~]# ls /root/rpmbuild                    //自动生成的目录结构
+	BUILD  BUILDROOT  RPMS  SOURCES  SPECS  SRPMS
+	3）准备工作，将源码软件复制到SOURCES目录
+	[root@web1 ~]# cp nginx-1.12.2.tar.gz /root/rpmbuild/SOURCES/
+	4）创建并修改SPEC配置文件
+	[root@web1 ~]# vim /root/rpmbuild/SPECS/nginx.spec 
+	Name:nginx        		(软件名称)
+	Version:1.12.2			(版本号)
+	Release:    10
+	Summary: Nginx is a web server software.    (中文支持)
+	Group:				(组包 && 删除 )
+	License:GPL     			(协议   任意GPL)
+	URL:    www.test.com		(域名)
+	Source0:nginx-1.12.2.tar.gz  	(源码包)
+	%description			(描述)
+	%post					(完成后脚本)
+	nginx [engine x] is an HTTP and reverse proxy server.
+	useradd nginx                       //非必需操作：安装后脚本(创建账户)
+	%setup –q                            //自动解压源码包，并cd进入目录
+	cp /root/rpmbuild/SPECS/nginx.sh %{buildroot}/usr/local/nginx/    
+	##注意，cp非必须操作，注意，这里是将一个脚本拷贝到安装目录，必须提前准备该文件
+	%files				（把那些目录压缩）
+	/usr/local/nginx/*            //对哪些文件与目录打包
+	2）rpmbuild创建RPM软件包
+	[root@web1 SOURCES]# rpmbuild -ba /root/rpmbuild/SOURCES/nginx.spec
+	[root@web1 ~]# ls /root/rpmbuild/RPMS/x86_64/nginx-1.12.2-10.x86_64.rpm
 
 
 
