@@ -2847,6 +2847,7 @@ standby   1  preempt
 	                server 192.168.2.200:80;
 	        }
 	.. ..
+
 	server {
 	        listen        80;
 	        server_name  localhost;
@@ -3197,7 +3198,8 @@ standby   1  preempt
             #fastcgi_param   SCRIPT_FILENAME  $document_root$fastcgi_script_name;
             include        fastcgi.conf;
         }
-        [root@proxy ~]# /usr/local/nginx/sbin/nginx -s reload
+        [root@proxy ~]# /usr/local/
+	/sbin/nginx -s reload
         #请先确保nginx是启动状态，否则运行该命令会报错,报错信息如下：
         #[error] open() "/usr/local/nginx/logs/nginx.pid" failed (2: No such file or directory)
 步骤三：创建PHP页面，测试LNMP架构能否解析PHP页面
@@ -3896,6 +3898,137 @@ standby   1  preempt
 	[root@proxy ~]# ssh-copy-id  host1
 	[root@proxy ~]# ssh-copy-id  host2
 	[root@proxy ~]# ssh-copy-id  host3
+=====================================================================
+          					NSD CLUSTER DAY01
+	配置2台虚拟机，每台虚拟机均为两块网卡：
+步骤一：存储服务器上添加额外的磁盘（如果虚拟机已经有磁盘，此步骤可以忽略）
+	使用KVM软件新建（或修改）虚拟机，为虚拟机额外添加一块硬盘。
+步骤二：存储服务器上安装并配置共享存储（如果有iscsi共享，此步骤可用忽略）
+	1) 定义后端存储
+	[root@proxy ~]# targetcli
+	/> ls
+	/> backstores/block create /dev/vdb1
+	2）创建iqn对象
+	/> /iscsi create iqn.2018-01.cn.tedu:server1
+	3) 授权客户机访问
+	/> iscsi/iqn.2018-01.cn.tedu:server1/tpg1/acls create iqn.2018-01.cn.tedu:client1
+	4) 绑定存储
+	/>iscsi/iqn.2018-01.cn.tedu:server1/tpg1/luns create /backstores/block/iscsi_store 
+	5) 绑定存储绑定监听地址，并保存配置
+	/> iscsi/iqn.2018-01.cn.tedu:server1/tpg1/portals/ create 0.0.0.0
+	/> saveconfig 
+	/> exit
+步骤三：在client服务器上安装并配置iSCSI客户端
+	1）安装客户端软件
+	[root@web1 ~]# yum list | grep iscsi
+	iscsi-initiator-utils.x86_64           6.2.0.873-14.el6
+	[root@web1 ~]#  yum install -y iscsi-initiator-utils
+	2）发现存储服务器的共享磁盘
+	因为有两条链路都可以连接到共享存储，所以需要在两条链路上都发现它。
+	注意：两次发现使用的IP地址不同！
+	[root@web1 ~]# iscsiadm --mode discoverydb --type sendtargets --portal 192.168.2.5 --discover
+	192.168.2.5:3260,1 iqn.2018-01.cn.tedu:client1
+	[root@web1 ~]# iscsiadm --mode discoverydb --type sendtargets --portal 192.168.4.5 --discover
+	201.1.2.5:3260,1 iqn.2018-01.cn.tedu:client1
+	3）登陆共享存储
+	只需要将iscsi服务重启就可以自动登陆（就不需要再login了）。
+	在login之前，只能看到本地的存储，登陆之后，将会多出两块新的硬盘。
+	[root@web1 ~]# service iscsi restart
+	NAME                        MAJ:MIN RM   SIZE RO TYPE MOUNTPOINT
+	sda                           8:0    0   20G   0 disk 
+	├─sda1                        8:1    0   20G  0 part
+	sdb                           8:0    0   20G   0 disk 
+	├─sdb1                        8:1    0   20G  0 part
+	vda                           252:0   0   20G  0 disk
+	├─vda1                       252:1   0    1G  0 part  /boot
+	4）设置开机自启动
+	iscsi用于自动login远程存储，iscsid是守护进程。
+	[root@web1 ~]# systemctl enable iscsid
+	[root@web1 ~]# systemctl enable iscsi
+步骤四：配置Multipath多路径
+	1）安装多路径软件包
+	[root@web1 ~]# yum list | grep multipath
+	device-mapper-multipath.x86_64         0.4.9-111.el7                       Server
+	device-mapper-multipath-libs.i686      0.4.9-111.el7                       Server
+	device-mapper-multipath-libs.x86_64    0.4.9-111.el7                       Server
+	[root@web1 ~]# yum install -y device-mapper-multipath
+	2）生成配置文件
+	[root@web1 ~]# cd /usr/share/doc/device-mapper-multipath-0.4.9/
+	[root@web1 ~]# ls multipath.conf
+	[root@web1 ~]# cp multipath.conf  /etc/multipath.conf
+	3）获取wwid
+	登陆共享存储后，系统多了两块硬盘，这两块硬盘实际上是同一个存储设备。应用服务器使用哪个都可以，但是如果使用sdb时，sdb对应的链路出现故障，它不会自动切换到sda。
+为了能够实现系统自动选择使用哪条链路，需要将这两块磁盘绑定为一个名称。
+通过磁盘的wwid来判定哪些磁盘是相同的。
+取得一块磁盘wwid的方法如下：
+	[root@web1 ~]# /usr/lib/udev/scsi_id --whitelisted --device=/dev/sdb 
+	360014059e8ba68638854e9093f3ba3a0
+	4）修改配置文件
+	首先声明自动发现多路径：
+	[root@web1 ~]# vim /etc/multipath.conf
+	defaults {
+       	 user_friendly_names yes
+	find_multipaths yes
+	}
+	然后在文件的最后加入多路径声明，如果哪个存储设备的wwid和第（3）步获取的wwid一样，那么，为其取一个别名，叫mpatha。
+	multipaths {
+   	 multipath {
+        wwid    "360014059e8ba68638854e9093f3ba3a0"
+        alias   mpatha
+   	 }
+	}
+	步骤五：启用Multipath多路径，并测试
+
+	1）启动Multipath，并设置为开机启动
+	[root@web1 ~]# systemctl start multipathd
+	[root@web1 ~]# systemctl enable multipathd
+	2）检查多路径设备文件
+	如果多路长设置成功，那么将在/dev/mapper下面生成名为mpatha的设备文件：
+	[root@web1 ~]# ls /dev/mapper/
+	control  mpatha  mpatha1
+	3）对多路径设备文件执行分区、格式化、挂载操作
+提示：如果前面已经对iscsi做过分区操作，则这里可以直接识别到mpatha1（就不需要再次分区了）。
+	[root@web1 ~]# fdisk -cu /dev/mapper/mpatha 
+	新的分区名称应该是/dev/mapper/mpathap1，如果该文件不存在，则执行以下命令进行配置的重新载入：
+	[root@web1 ~]# ls /dev/mapper/    ＃再次查看，将会看到新的分区
+	control  mpatha  mpathap1  
+	创建目录并挂载：
+	[root@web1 ~]# mkfs.xfs /dev/mapper/mpathap1
+	[root@web1 ~]# mkdir /data
+	[root@web1 ~]# mount /dev/mapper/mpathap1 /data/
+	[root@web1 ~]# df -h /data/
+	Filesystem            Size  Used Avail Use% Mounted on
+	/dev/mapper/mpathap1  2.0G  3.0M  1.9G   1% /data
+	4）验证多路径
+	查看多路径，sda和sdb都是running状态。
+	[root@web1 ~]# multipath -rr
+	reload: mpatha (360014059e8ba68638854e9093f3ba3a0) undef LIO-ORG ,store           
+	size=9.3G features='0' hwhandler='0' wp=undef
+	|-+- policy='service-time 0' prio=1 status=undef
+	| `- 2:0:0:0 sda 8:0  active ready running
+	`-+- policy='service-time 0' prio=1 status=undef
+	  `- 3:0:0:0 sdb 8:16 active ready running
+	使用-ll选项查看，仅sda为有效运行状态。
+	[root@web1 ~]# multipath -ll
+	reject: mpatha (360014059e8ba68638854e9093f3ba3a0) undef LIO-ORG ,store           
+	size=9.3G features='0' hwhandler='0' wp=undef
+	`-+- policy='service-time 0' prio=0 status=undef
+	  `- 2:0:0:0 sda 8:0  active undef running
+==========================================================================
+					NSD CLUSTER DAY02
+	
+	集群分类
+	高性能：HPC  	（通过集群开发的并行应用程序）
+	负载均衡：LB	（客户端负载在计算机集群中尽可能的平均分摊）
+	高可用：HA    （单点故障）
+	LVS项目：
+	LVS可以实现高可用的。可伸缩的Web。Mail。Cache和Media等网络服务
+	前端：负载均衡层：有一台或多台
+	中间：服务器群：有一组实际运行应用服务的服务器
+	低端：提供共享存储空间的存储区域
+	LVS 术语
+	Director Server：调度服务器
+	---将负载
 
 
 
@@ -3910,6 +4043,638 @@ standby   1  preempt
 
 
 
+
+
+
+
+
+
+
+
+
+
+=======================================================================
+1 案例1：ipvsadm命令用法
+	准备一台Linux服务器，安装ipvsadm软件包，练习使用ipvsadm命令，实现如下功能：
+	安装ipvsadm软件包，关于ipvsadm的用法可以参考man ipvsadm资料。
+	ipvsadm命令选项
+	ipvsadm -A   添加虚拟服务器	
+		  -E	 修改
+		  -D	 删除
+		  -C	 清空所以
+        	  -a	 添加真实服务器
+		  -e	 修改真实服务器
+		  -d	 删除真实服务器
+		  -L	  查看LVS规则表
+	表－2 ipvsadm语法案例
+	
+
+
+
+
+1.3 步骤、
+步骤一：使用命令增、删、改LVS集群规则
+	1）创建LVS虚拟集群服务器（算法为加权轮询：wrr）
+	[root@proxy ~]# yum -y install ipvsadm
+	[root@proxy ~]# ipvsadm -A -t 192.168.4.5:80 -s wrr
+	[root@proxy ~]# ipvsadm -Ln
+	IP Virtual Server version 1.2.1 (size=4096)
+	Prot LocalAddress:Port Scheduler Flags
+  	-> RemoteAddress:Port           Forward Weight ActiveConn InActConn
+	TCP  192.168.4.5:80 wrr		
+	2）为集群添加若干real server
+	[root@proxy ~]# ipvsadm -a -t 192.168.4.5:80 -r 192.168.2.100 -m -w 1
+	-a (添加真实服务器) -t （tcp协议） -r（添加真实服务器） -m（Nat工作模式） -w（权重）
+	[root@proxy ~]# ipvsadm -Ln
+	IP Virtual Server version 1.2.1 (size=4096)
+	Prot LocalAddress:Port Scheduler Flags
+  	-> RemoteAddress:Port           Forward Weight ActiveConn InActConn
+	TCP  192.168.4.5:80 wrr
+  	-> 192.168.2.100:80             Masq    1      0          0
+	[root@proxy ~]# ipvsadm -a -t 192.168.4.5:80 -r 192.168.2.200 -m -w 2
+	[root@proxy ~]# ipvsadm –a -t 192.168.4.5:80 -r 192.168.2.201 -m -w 3
+	[root@proxy ~]# ipvsadm –a -t 192.168.4.5:80 -r 192.168.2.202 -m -w 4
+2 案例2：部署LVS-NAT集群
+	使用LVS实现NAT模式的集群调度服务器，为用户提供Web服务：
+	集群对外公网IP地址为192.168.4.5
+	调度器内网IP地址为192.168.2.5
+	真实Web服务器地址分别为192.168.2.100、192.168.2.200
+	使用加权轮询调度算法，真实服务器权重分别为1和2
+	使用4台虚拟机，1台作为Director调度器、2台作为Real Server、1台客户端，拓扑结构如图-1所示，注意：web1和web2必须配置网关地址。
+	
+步骤一：配置基础环境
+	1）设置Web服务器（以web1为例）
+	[root@web1 ~]# yum -y install httpd
+	[root@web1 ~]# echo "192.168.2.100" > /var/www/html/index.html
+	2）启动Web服务器软件
+	[root@web1 ~]# systemctl restart httpd
+	3)关闭防火墙与SELinux
+	[root@web1 ~]# systmctl stop firewalld
+	[root@web1 ~]# setenforce 0
+步骤三：部署LVS-NAT模式调度器
+	1)确认调度器的路由转发功能(如果已经开启，可以忽略)
+	[root@proxy ~]# echo 1 > /proc/sys/net/ipv4/ip_forward
+	[root@proxy ~]# cat /proc/sys/net/ipv4/ip_forward
+	1
+	[root@proxy ~]# echo "net.ipv4.ip_forward = 1" >> /etc/sysctl.conf
+	#修改配置文件，设置永久规则
+	2）创建集群服务器
+	[root@proxy ~]# yum -y install ipvsadm
+	[root@proxy ~]# ipvsadm -A -t 192.168.4.5:80 -s wrr
+	2）添加真实服务器
+	[root@proxy ~]# ipvsadm -a -t 192.168.4.5:80 -r 192.168.2.100 -w 1 -m
+	[root@proxy ~]# ipvsadm -a -t 192.168.4.5:80 -r 192.168.2.200 -w 1 -m
+	3）查看规则列表，并保存规则
+	[root@proxy ~]# ipvsadm -Ln
+	[root@proxy ~]# ipvsadm-save -n > /etc/sysconfig/ipvsadm
+步骤四：客户端测试
+	客户端使用curl命令反复连接http://192.168.4.5，查看访问的页面是否会轮询到不同的后端真实服务器。
+	3 案例3：部署LVS-DR集群
+	客户端IP地址为192.168.4.10
+	LVS调度器VIP地址为192.168.4.15
+	LVS调度器DIP地址设置为192.168.4.5
+	真实Web服务器地址分别为192.168.4.100、192.168.4.200
+	使用加权轮询调度算法，web1的权重为1，web2的权重为
+	说明：
+	CIP是客户端的IP地址；
+	VIP是对客户端提供服务的IP地址；
+	RIP是后端服务器的真实IP地址；
+	DI3.3 步骤
+	实现此案例需要按照如下步骤进行。
+说明：
+	CIP是客户端的IP地址；
+	VIP是对客户端提供服务的IP地址；
+	RIP是后端服务器的真实IP地址；
+	DIP是调度器与后端服务器通信的IP地址（VIP必须配置在虚拟接口）。
+步骤一：配置实验网络环境P是调度器与后端服务器通信的IP地址（VIP必须配置在虚拟接口）。
+	1）设置Proxy代理服务器的VIP和DIP
+	注意：为了防止冲突，VIP必须要配置在网卡的虚拟接口！！！
+	 [root@proxy ~]# cd /etc/sysconfig/network-scripts/
+	[root@proxy ~]# cp ifcfg-eth0{,:0}
+	[root@proxy ~]# vim ifcfg-eth0
+	TYPE=Ethernet
+	BOOTPROTO=none
+	NAME=eth0
+	DEVICE=eth0
+	ONBOOT=yes
+	IPADDR=192.168.4.5
+	PREFIX=24
+	[root@proxy ~]# vim ifcfg-eth0:0
+	TYPE=Ethernet
+	BOOTPROTO=none
+	DEFROUTE=yes
+	NAME=eth0:0
+	DEVICE=eth0:0
+	ONBOOT=yes
+	IPADDR=192.168.4.15
+	PREFIX=24
+	[root@proxy ~]# systemctl restart network
+	2）设置Web1服务器网络参数
+	[root@web1 ~]# nmcli connection modify eth0 ipv4.method manual \
+ipv4.addresses 192.168.4.100/24 connection.autoconnect yes
+	[root@web1 ~]# nmcli connection up eth0
+	接下来给web1配置VIP地址。
+注意：这里的子网掩码必须是32（也就是全255），网络地址与IP地址一样，广播地址与IP地址也一样。
+	[root@web1 ~]# cd /etc/sysconfig/network-scripts/
+	[root@web1 ~]# cp ifcfg-lo{,:0}
+	[root@web1 ~]# vim ifcfg-lo:0
+	DEVICE=lo:0
+	IPADDR=192.168.4.15
+	NETMASK=255.255.255.255
+	NETWORK=192.168.4.15
+	BROADCAST=192.168.4.15
+	ONBOOT=yes
+	NAME=lo:0
+	防止地址冲突的问题：
+	这里因为web1也配置与代理一样的VIP地址，默认肯定会出现地址冲突；
+	sysctl.conf文件写入这下面四行的主要目的就是访问192.168.4.15的数据包，只有调度器会响应，其他主机都不做任何响应，这样防止地址冲突的问题。
+	[root@web1 ~]# vim /etc/sysctl.conf
+	#手动写入如下4行内容
+	net.ipv4.conf.all.arp_ignore = 1
+	net.ipv4.conf.lo.arp_ignore = 1
+	net.ipv4.conf.lo.arp_announce = 2
+	net.ipv4.conf.all.arp_announce = 2
+	#当有arp广播问谁是192.168.4.15时，本机忽略该ARP广播，不做任何回应
+	#本机不要向外宣告自己的lo回环地址是192.168.4.15
+	[root@web1 ~]# sysctl -p
+	[root@web1 ~]# systemctl restart network
+	web1和web2步奏一样
+步骤三：proxy调度器安装软件并部署LVS-DR模式调度器
+	1）安装软件（如果已经安装，此步骤可以忽略）
+	[root@proxy ~]# yum -y install ipvsadm	
+	2）清理之前实验的规则，创建新的集群服务器规则
+	[root@proxy ~]# ipvsadm -C                                #清空所有规则
+	[root@proxy ~]# ipvsadm -A -t 192.168.4.15:80 -s wrr
+	3）添加真实服务器(-g参数设置LVS工作模式为DR模式，-w设置权重)
+	[root@proxy ~]# ipvsadm -a -t 192.168.4.15:80 -r 192.168.4.100 -g -w 1
+	[root@proxy ~]# ipvsadm -a -t 192.168.4.15:80 -r 192.168.4.200 -g -w 1
+	4）查看规则列表，并保存规则
+	[root@proxy ~]# ipvsadm -Ln
+	TCP  192.168.4.15:80 wrr
+ 	 -> 192.168.4.100:80             Route   1      0          0         
+	  -> 192.168.4.200:80             Route   2      0          0
+	[root@proxy ~]# ipvsadm-save -n > /etc/sysconfig/ipvsadm   保存
+步骤四：客户端测试
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+==============================================================================
+：配置HAProxy负载平衡集群	
+    	客户端访问HAProxy，HAProxy分发请求到后端Real Server
+    	要求HAProxy可以根据Cookie为客户端分配固定后端服务器
+    	开启HAProxy监控页面，及时查看调度器状态
+    	设置HAProxy为开机启动
+步骤一：配置后端Web服务器	
+	[root@web1 ~]# yum -y install httpd
+    	[root@web1 ~]# systemctl start httpd
+    	[root@web1 ~]# echo "192.168.2.100" > /var/www/html/index.html
+    	[root@web2 ~]# yum -y install httpd
+    	[root@web2 ~]# systemctl start httpd
+    	[root@web2 ~]# echo "192.168.2.200" > /var/www/html/index.html
+步骤二：部署HAProxy服务器
+	1）配置网络，安装软件
+	[root@haproxy ~]# echo 'net.ipv4.ip_forward = 1' >> sysctl.conf  //开启路由转发
+    	[root@haproxy ~]# sysctl -p
+    	[root@haproxy ~]# yum -y install haproxy
+	2）修改配置文件
+	[root@haproxy ~]# vim /etc/haproxy/haproxy.cfg
+    	global
+     	log 127.0.0.1 local2   ###[err warning info debug]
+     	chroot /usr/local/haproxy
+     	pidfile /var/run/haproxy.pid ###haproxy的pid存放路径
+     	maxconn 4000     		###最大连接数，默认4000
+     	user haproxy
+     	group haproxy
+     	daemon       		###创建1个进程进入deamon模式运行
+    	defaults
+     	mode http    		###默认的模式mode { tcp|http|health } log global   ###采用全局定义的日志
+     	option dontlognull  	###不记录健康检查的日志信息
+     	option httpclose  	###每次请求完毕后主动关闭http通道
+     	option httplog  	 	###日志类别http日志格式
+     	option forwardfor  	###后端服务器可以从Http Header中获得客户端ip
+     	option redispatch  	###serverid服务器挂掉后强制定向到其他健康服务器
+     	timeout connect 10000 	#如果backend没有指定，默认为10s
+     	timeout client 300000 	###客户端连接超时
+     	timeout server 300000 	###服务器连接超时
+     	maxconn  60000  		###最大连接数
+     	retries  3   		###3次连接失败就认为服务不可用，也可以通过后面设置
+    	listen stats
+        bind 0.0.0.0:1080   	#监听端口
+        stats refresh 30s   	#统计页面自动刷新时间
+        stats uri /stats   	#统计页面url
+        stats realm Haproxy Manager #统计页面密码框上提示文本
+        stats auth admin:admin  #统计页面用户名和密码设置
+      #stats hide-version   	#隐藏统计页面上HAProxy的版本信息
+    	listen  websrv-rewrite 0.0.0.0:80	(集群名称)
+       cookie  SERVERID rewrite   (标记)
+       balance roundrobin
+       server  web1 192.168.2.100:80 cookie app1inst1 check inter 2000 rise 2 fall 5(健康检查)
+       server  web2 192.168.2.200:80 cookie app1inst2 check inter 2000 rise 2 fall 5
+	3）启动服务器并设置开机启动
+	[root@haproxy ~]# systemctl start haproxy
+    	[root@haproxy ~]# systemctl enable haproxy
+===========================================================================
+						NSD CLUSTER DAY04
+	分布式文件系统
+	分布式文件系统是指文件系统管理的储存资源不一定直接相连在本地带点上，而是通过计算机网络与节点相连
+	分布式文件系统的设计基于客户机/服务器模式
+	常用的分布文件系统
+	Lustre    Hadoop   FastDFS  Ceph    GlusterFS
+	Ceph:具有高可用，高性能的特点，可以提供对象储存，快存储，文件系统存储（可以提供的存储空间PB——>TB——>GB）
+	OSDs   存储设备
+	Monitors	集群监控组建
+	MDSs		存放文件系统的元数据
+	Client	客户端
+步骤一：安装前准备
+	1）物理机为所有节点配置yum源服务器。
+	[root@room9pc01 ~]# yum -y install vsftpd
+	[root@room9pc01 ~]# mkdir  /var/ftp/ceph
+	[root@room9pc01 ~]# mount -o loop \
+	rhcs2.0-rhosp9-20161113-x86_64.iso  /var/ftp/ceph
+	[root@room9pc01 ~]# systemctl  restart  vsftpd
+	2）修改所有节点都需要配置YUM源（这里仅以node1为例）。
+	[root@node1 ~]# cat /etc/yum.repos.d/ceph.repo
+	[mon]
+	name=mon
+	baseurl=ftp://192.168.4.254/ceph/rhceph-2.0-rhel-7-x86_64/MON
+	gpgcheck=0
+	[osd]
+	name=osd
+	baseurl=ftp://192.168.4.254/ceph/rhceph-2.0-rhel-7-x86_64/OSD
+	gpgcheck=0
+	[tools]
+	name=tools
+	baseurl=ftp://192.168.4.254/ceph/rhceph-2.0-rhel-7-x86_64/Tools
+	gpgcheck=0
+	3）修改/etc/hosts并同步到所有主机。
+	警告：/etc/hosts解析的域名必须与本机主机名一致！
+	 [root@node1 ~]# cat /etc/hosts
+	... ...
+	192.168.4.10  client
+	192.168.4.11     node1
+	192.168.4.12     node2
+	192.168.4.13     node3
+	/etc/hosts解析的域名必须与本机主机名一致！！！！
+	[root@node1 ~]# for i in 10 11  12  13
+	> do
+	> scp  /etc/hosts  192.168.4.$i:/etc/
+	> done
+	[root@node1 ~]# for i in  10 11  12  13
+	> do
+	> scp  /etc/yum.repos.d/ceph.repo  192.168.4.$i:/etc/yum.repos.d/
+	> done
+	3）配置无密码连接(包括自己远程自己也不需要密码)。
+	[root@node1 ~]# ssh-keygen   -f /root/.ssh/id_rsa    -N ''
+	[root@node1 ~]# for i in 10  11  12  13
+	> do
+	> ssh-copy-id  192.168.4.$i
+	> done
+步骤二：配置NTP时间同步
+	1）真实物理机创建NTP服务器。
+	[root@room9pc01 ~]#  yum -y install chrony
+	[root@client ~]#  cat /etc/chrony.conf
+	server 0.centos.pool.ntp.org iburst
+	allow 192.168.4.0/24
+	local stratum 10
+	[root@room9pc01 ~]# systemctl  restart  chronyd
+	如果有防火墙规则，需要清空所有规则
+	[root@room9pc01 ~]# iptables -F
+	2）其他所有节点与NTP服务器同步时间（以node1为例）。
+	[root@node1 ~]#  cat /etc/chrony.conf
+	server 192.168.4.254   iburst
+	[root@node1 ~]# systemctl  restart  chronyd
+步骤三：准备存储磁盘
+	1）物理机上为每个虚拟机准备3块磁盘。（可以使用命令，也可以使用图形直接添加）
+	[root@room9pc01 ~]#  cd /var/lib/libvirt/images
+	[root@room9pc01 ~]# qemu-img create -f qcow2 node1-vdb.vol 10G
+	[root@room9pc01 ~]# qemu-img create -f qcow2 node1-vdc.vol 10G
+	[root@room9pc01 ~]# qemu-img create -f qcow2 node1-vdd.vol 10G
+	[root@room9pc01 ~]# qemu-img create -f qcow2 node2-vdb.vol 10G
+	[root@room9pc01 ~]# qemu-img create -f qcow2 node2-vdc.vol 10G
+	[root@room9pc01 ~]# qemu-img create -f qcow2 node2-vdd.vol 10G
+	[root@room9pc01 ~]# qemu-img create -f qcow2 node3-vdb.vol 10G
+	[root@room9pc01 ~]# qemu-img create -f qcow2 node3-vdc.vol 10G
+	[root@room9pc01 ~]# qemu-img create -f qcow2 node3-vdd.vol 10G
+	2）使用virt-manager为虚拟机添加磁盘。
+	[root@room9pc01 ~]# virt-manager
+2 案例2：部署ceph集群
+步骤一：部署软件
+	1）在node1安装部署工具，学习工具的语法格式。
+	[root@node1 ~]#  yum -y install ceph-deploy  
+	[root@node1 ~]#  ceph-deploy  --help
+	2）创建目录
+	[root@node1 ~]#  mkdir ceph-cluster
+	[root@node1 ~]#  cd ceph-cluster/
+步骤二：部署Ceph集群
+	1）创建Ceph集群配置。
+	[root@node1 ceph-cluster]#  ceph-deploy new node1 node2 node3
+	2）给所有节点安装软件包。
+	[root@node1 ceph-cluster]# ceph-deploy install node1 node2 node3
+	3）初始化所有节点的mon服务（主机名解析必须对）
+	[root@node1 ceph-cluster]# ceph-deploy mon create-initial
+	常见错误及解决方法（非必要操作，有错误可以参考）：
+如果提示如下错误信息：
+	[node1][ERROR ] admin_socket: exception getting command descriptions: [Error 2] No such file or directory
+	解决方案如下（在node1操作）：
+先检查自己的命令是否是在ceph-cluster目录下执行的！！！！如果时确认是在该目录下执行的create-initial命令，依然保存，可以使用如下方式修复。
+	[root@node1 ceph-cluster]# vim ceph.conf      #文件最后追加以下内容
+	public_network = 192.168.4.0/24
+	修改后重新推送配置文件:
+	[root@node1 ceph-cluster]# ceph-deploy --overwrite-conf config push node1 node2 node3
+步骤三：创建OSD
+	1）准备磁盘分区
+	[root@node1 ~]#  parted  /dev/vdb  mklabel  gpt
+	[root@node1 ~]#  parted  /dev/vdb  mkpart primary  1M  50%
+	[root@node1 ~]#  parted  /dev/vdb  mkpart primary  50%  100%
+	[root@node1 ~]# chown  ceph.ceph  /dev/vdb1
+	[root@node1 ~]# chown  ceph.ceph  /dev/vdb2
+	//这两个分区用来做存储服务器的日志journal盘
+	2）初始化清空磁盘数据（仅node1操作即可）
+	[root@node1 ~]# ceph-deploy disk  zap  node1:vdc   node1:vdd    
+	[root@node1 ~]# ceph-deploy disk  zap  node2:vdc   node2:vdd
+	[root@node1 ~]# ceph-deploy disk  zap  node3:vdc   node3:vdd   
+	3）创建OSD存储空间（仅node1操作即可）
+	[root@node1 ~]# ceph-deploy osd create node1:vdc:/dev/vdb1 node1:vdd:/dev/vdb2  
+	//创建osd存储设备，vdc为集群提供存储空间，vdb1提供JOURNAL日志，
+	//一个存储设备对应一个日志设备，日志需要SSD，不需要很大
+	[root@node1 ~]# ceph-deploy osd create node2:vdc:/dev/vdb1 node2:vdd:/dev/vdb2
+	[root@node1 ~]# ceph-deploy osd create node3:vdc:/dev/vdb1 node3:vdd:/dev/vdb2 
+3 案例3：创建Ceph块存储
+	步骤一：创建镜像
+	1）查看存储池。
+	[root@node1 ~]# ceph osd lspools
+	0 rbd,
+	2）创建镜像、查看镜像
+	[root@node1 ~]# rbd create demo-image --image-feature  layering --size 10G
+	[root@node1 ~]# rbd create rbd/image --image-feature  layering --size 10G
+	[root@node1 ~]# rbd list
+	[root@node1 ~]# rbd info demo-image
+	rbd image 'demo-image':
+    	size 10240 MB in 2560 objects
+    	order 22 (4096 kB objects)
+    	block_name_prefix: rbd_data.d3aa2ae8944a
+    	format: 2
+    	features: layering
+	步骤二：动态调整
+	1）缩小容量
+	[root@node1 ~]# rbd resize --size 7G image --allow-shrink
+	[root@node1 ~]# rbd info image
+	2）扩容容量
+	[root@node1 ~]# rbd resize --size 15G image
+	[root@node1 ~]# rbd info image
+步骤三：通过KRBD访问
+	1）集群内将镜像映射为本地磁盘
+	[root@node1 ~]# rbd map demo-image
+	/dev/rbd0
+	[root@node1 ~]# lsblk
+	… …
+	rbd0          251:0    0   10G  0 disk
+	[root@node1 ~]# mkfs.xfs /dev/rbd0
+	[root@node1 ~]# mount  /dev/rbd0  /mnt
+	2）客户端通过KRBD访问
+	#客户端需要安装ceph-common软件包
+	#拷贝配置文件（否则不知道集群在哪）
+	#拷贝连接密钥（否则无连接权限）
+	[root@client ~]# yum -y  install ceph-common
+	[root@client ~]# scp 192.168.4.11:/etc/ceph/ceph.conf  /etc/ceph/
+	[root@client ~]# scp 192.168.4.11:/etc/ceph/ceph.client.admin.keyring \
+	/etc/ceph/
+	[root@client ~]# rbd map image
+	[root@client ~]#  lsblk
+	[root@client ~]# rbd showmapped
+	id pool image snap device    
+	0  rbd  image -    /dev/rbd0
+	3) 客户端格式化、挂载分区
+	[root@client ~]# mkfs.xfs /dev/rbd0
+	[root@client ~]# mount /dev/rbd0 /mnt/
+	[root@client ~]# echo "test" > /mnt/test.txt
+步骤四：创建镜像快照
+	1) 查看镜像快照
+	[root@node1 ~]# rbd snap ls image
+	2) 创建镜像快照
+	[root@node1 ~]# rbd snap create image --snap image-snap1
+	[root@node1 ~]# rbd snap ls image
+	SNAPID NAME            SIZE 
+     4 image-snap1 15360 MB
+	3) 删除客户端写入的测试文件
+	[root@client ~]# rm  -rf   /mnt/test.txt
+	4) 还原快照
+	[root@node1 ~]# rbd snap rollback image --snap image-snap1
+	#客户端重新挂载分区
+	[root@client ~]# umount  /mnt
+	[root@client ~]# mount /dev/rbd0 /mnt/
+	[root@client ~]# ls  /mnt
+步骤四：创建快照克隆
+	1）克隆快照
+	[root@node1 ~]#  rbd snap protect image --snap image-snap1
+	[root@node1 ~]#  rbd snap rm image --snap image-snap1    //会失败
+	[root@node1 ~]# rbd clone \
+	image --snap image-snap1 image-clone --image-feature layering
+	//使用image的快照image-snap1克隆一个新的image-clone镜像
+	2）查看克隆镜像与父镜像快照的关系
+	[root@node1 ~]#  rbd info image-clone
+	rbd image 'image-clone':
+    	size 15360 MB in 3840 objects
+    	order 22 (4096 kB objects)
+    	block_name_prefix: rbd_data.d3f53d1b58ba
+    	format: 2
+    	features: layering
+    	flags: 
+    	parent: rbd/image@image-snap1
+	#克隆镜像很多数据都来自于快照链
+	#如果希望克隆镜像可以独立工作，就需要将父快照中的数据，全部拷贝一份，但比较耗时！！！
+	[root@node1 ~]#  rbd flatten image-clone
+	[root@node1 ~]#  rbd info image-clone
+	rbd image 'image-clone':
+    	size 15360 MB in 3840 objects
+    	order 22 (4096 kB objects)
+    	block_name_prefix: rbd_data.d3f53d1b58ba
+    	format: 2
+    	features: layering
+    	flags: 
+	#注意，父快照信息没了！
+步骤四：其他操作
+	1） 客户端撤销磁盘映射
+	[root@client ~]# umount /mnt
+	[root@client ~]# rbd showmapped
+	id pool image        snap device    
+	0  rbd  image        -    /dev/rbd0
+	//语法格式:
+	[root@client ~]# rbd unmap /dev/rbd/{poolname}/{imagename}
+	[root@client ~]# rbd unmap /dev/rbd/rbd/image
+	2）删除快照与镜像
+	[root@node1 ~]# rbd snap rm image --snap image-snap
+	[root@node1 ~]# rbd  list
+	[root@node1 ~]# rbd  rm  image
+===========================================
+块存储应用案例
+	1）创建磁盘镜像。
+	[root@node1 ~]# rbd create vm1-image --image-feature  layering --size 10G
+	[root@node1 ~]# rbd create vm2-image --image-feature  layering --size 10G
+	[root@node1 ~]# rbd  list
+	[root@node1 ~]# rbd  info  vm1-image
+	[root@node1 ~]# qemu-img  info  rbd:rbd/vm1-image  (查看大小)
+	image: rbd:rbd/vm1-image
+	file format: raw
+	virtual size: 10G (10737418240 bytes)
+	disk size: unavailable
+	2）Ceph认证账户。
+	Ceph默认开启用户认证，客户端需要账户才可以访问，
+	默认账户名称为client.admin，key是账户的密钥，
+	可以使用ceph auth添加新账户（案例我们使用默认账户）。
+	[root@node1 ~]# cat /etc/ceph/ceph.conf          //配置文件 
+	[global]
+	mon_initial_members = node1, node2, node3
+	mon_host = 192.168.2.10,192.168.2.20,192.168.2.30
+	auth_cluster_required = cephx                                   //开启认证
+	auth_service_required = cephx                           //开启认证
+	auth_client_required = cephx                             //开启认证
+	[root@node1 ~]# cat /etc/ceph/ceph.client.admin.keyring    //账户文件
+	[client.admin]
+    	key = AQBTsdRapUxBKRAANXtteNUyoEmQHveb75bISg==
+	3）部署客户端环境。
+	注意：这里使用真实机当客户端！！！
+	客户端需要安装ceph-common软件包，拷贝配置文件（否则不知道集群在哪），
+	拷贝连接密钥（否则无连接权限）。
+	[root@room9pc01 ~]# yum -y  install ceph-common
+	[root@room9pc01 ~]# scp 192.168.4.11:/etc/ceph/ceph.conf  /etc/ceph/
+	[root@room9pc01 ~]# scp 192.168.4.11:/etc/ceph/ceph.client.admin.keyring \
+	/etc/ceph/
+	4）创建KVM虚拟机。
+	使用virt-manager创建2台普通的KVM虚拟机。
+	5）配置libvirt secret。
+	编写账户信息文件（真实机操作）
+	[root@room9pc01 ~]# vim secret.xml            //新建临时文件，内容如下 
+	<secret ephemeral='no' private='no'>
+        	<usage type='ceph'>
+                <name>client.admin secret</name>
+        </usage>
+	</secret>
+	#使用XML配置文件创建secret
+	[root@room9pc01 ~]# virsh secret-define --file secret.xml
+	733f0fd1-e3d6-4c25-a69f-6681fc19802b       
+	//随机的UUID，这个UUID对应的有账户信息
+	编写账户信息文件（真实机操作）
+	[root@room9pc01 ~]# ceph auth get-key client.admin 
+	//获取client.admin的key，或者直接查看密钥文件
+	[root@room9pc01 ~]# cat /etc/ceph/ceph.client.admin.keyring
+	设置secret，添加账户的密钥
+	[root@room9pc01] virsh secret-set-value \
+	--secret 733f0fd1-e3d6-4c25-a69f-6681fc19802b \
+	--base64 AQBTsdRapUxBKRAANXtteNUyoEmQHveb75bISg
+	//这里secret后面是之前创建的secret的UUID
+	//base64后面是client.admin账户的密码
+	//现在secret中既有账户信息又有密钥信息
+	6）虚拟机的XML配置文件。
+	每个虚拟机都会有一个XML配置文件，包括：
+	虚拟机的名称、内存、CPU、磁盘、网卡等信息
+	[root@room9pc01 ~]# vim /etc/libvirt/qemu/vm1.xml
+	//修改前内容如下
+	<disk type='file' device='disk'>
+      <driver name='qemu' type='qcow2'/>
+      <source file='/var/lib/libvirt/images/vm1.qcow2'/>
+      <target dev='vda' bus='virtio'/>
+      <address type='pci' domain='0x0000' bus='0x00' slot='0x07' function='0x0'/>
+    	</disk>
+	不推荐直接使用vim修改配置文件，推荐使用virsh edit修改配置文件，效果如下：
+	[root@room9pc01] virsh edit vm1           //vm1为虚拟机名称
+	<disk type='network' device='disk'>      /修改网盘
+      <driver name='qemu' type='raw’/>
+      <auth username='admin'> 
+      <secret type='ceph' uuid='自己查’/>  （virsh secret-define --file secret.xml）
+      </auth>
+      <source protocol='rbd' name='rbd/vm1'>          
+	<host name='192.168.4.11' port='6789’/>    		
+	</source>
+    	<target dev='vda' bus='virtio'/>    
+      <address type='pci' domain='0x0000' bus='0x00' slot='0x07' function='0x0'/>
+    	</disk>
+2 案例2：Ceph文件系统
+	1）添加一台新的虚拟机，要求如下：
+	IP地址:192.168.4.14
+	主机名:node4
+	配置yum源（包括rhel、ceph的源）
+	与Client主机同步时间
+	node1允许无密码远程node4
+	2）部署元数据服务器
+	登陆node4，安装ceph-mds软件包
+	[root@node4 ~]# yum -y install ceph-mds 
+	登陆node1部署节点操作
+	[root@node1 ~]# cd  /root/ceph-cluster
+	//该目录，是最早部署ceph集群时，创建的目录
+	[root@node1 ceph-cluster]# ceph-deploy mds create node4
+	//给nod4拷贝配置文件，启动mds服务
+	同步配置文件和key
+	[root@node1 ceph-cluster]# ceph-deploy admin node4	
+	3）创建存储池
+	[root@fdfs_storage1 FastDFS]# mkdir -pv /data/fastdfs
+	4）修改配置文件。
+	[root@node4 ~]# ceph osd pool create cephfs_data 128
+	//创建存储池，对应128个PG    （储存数据）
+	[root@node4 ~]# ceph osd pool create cephfs_metadata 128
+	//创建存储池，对应128个PG   （元数据）
+	5）创建Ceph文件系统
+	[root@node4 ~]# ceph mds stat                     //查看mds状态
+	e2:, 1 up:standby
+	[root@node4 ~]# ceph fs new myfs1 cephfs_metadata cephfs_data
+	new fs with metadata pool 2 and data pool 1
+	//注意，先写medadata池，再写data池
+	//默认，只能创建1个文件系统，多余的会报错
+	[root@node4 ~]# ceph fs ls
+	name: myfs1, metadata pool: cephfs_metadata, data pools: [cephfs_data ]
+	[root@node4 ~]# ceph mds stat
+	e4: 1/1/1 up {0=node4=up:creating}
+	6）客户端挂载
+	[root@client ~]# mount -t ceph 192.168.4.11:6789:/  /mnt/cephfs/ \
+	-o name=admin,secret=AQBTsdRapUxBKRAANXtteNUyoEmQHveb75bISg==
+	//注意:-t 文件系统类型为ceph
+	//192.168.4.11为MON节点的IP（不是MDS节点）
+	//admin是用户名,secret是密钥
+	//密钥可以在/etc/ceph/ceph.client.admin.keyring中找到
+创建对象存储服务器
+	步骤一：部署对象存储服务器
+	1）准备实验环境，要求如下：
+	IP地址:192.168.4.15
+	主机名:node5
+	配置yum源（包括rhel、ceph的源）
+	与Client主机同步时间
+	node1允许无密码远程node5
+	修改node1的/etc/hosts，并同步到所有node主机
+	2）部署RGW软件包
+	[root@node1 ~]# ceph-deploy install --rgw node5
+	同步配置文件与密钥到node5
+	[root@node1 ~]# cd /root/ceph-cluster
+	[root@node1 ~]# ceph-deploy admin node5
+	3）新建网关实例
+	启动一个rgw服务
+	[root@node1 ~]# ceph-deploy rgw create node5
+	登陆node5验证服务是否启动
+	[root@node5 ~]# ps aux |grep radosgw
+	ceph      4109  0.2  1.4 2289196 14972 ?       Ssl  22:53   0:00 /usr/bin/radosgw -f --cluster ceph --name client.rgw.node4 --setuser ceph --setgroup ceph
+	[root@node5 ~]# systemctl  status ceph-radosgw@\*
+	4）修改服务端口
+	登陆node5，RGW默认服务端口为7480，修改为8000或80更方便客户端记忆和使用
+	[root@node5 ~]#  vim  /etc/ceph/ceph.conf
+	[client.rgw.node5]
+	host = node5
+	rgw_frontends = "civetweb port=8000"
+	//node5为主机名
+	//civetweb是RGW内置的一个web服务
+	
 
 
 
