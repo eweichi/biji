@@ -4674,12 +4674,498 @@ ipv4.addresses 192.168.4.100/24 connection.autoconnect yes
 	rgw_frontends = "civetweb port=8000"
 	//node5为主机名
 	//civetweb是RGW内置的一个web服务
+================================================================================
+数据库：
+	数据库软件：
+	Oracle  DB2  SQL server
+	DB DataBase
+	数据库：依照莫中数据模型进行组织并存放到存储器的数据集合
+	MySQL:
+	1.适合中小型企业的关系型软件
+	2.支持多种操作系统
+	3.支持多种开发语言	
+	4.可移植性好
+一：使用Mysql搭建数据库服务
+	步骤一：准备工作
+	1）停止mariadb服务
+	[root@localhost ~]# systemctl  stop mariadb
+	2）删除/etc/my.cnf配置文件
+	此配置文件由RHEL自带的mariadb-libs库提供：
+	[root@localhost ~]# rm -rf /etc/my.cnf
+	3）删除数据
+	 [root@localhost ~]# rm -rf /var/lib/mysql/*
+	4）卸载软件包（没有会显示未安装软件包）
+	 [root@localhost ~]# rpm -e --nodeps mariadb-server mariadb 
+	警告：/var/log/mariadb/mariadb.log 已另存为/var/log/mariadb/mariadb.log.rpmsave
+步骤二：安装软件包
+	1）安装mysql时可能会缺少某些依赖包，需提前单独安装
+	 [root@localhost ~]# yum -y install perl-Data-Dumper  perl-JSON  perl-Time-HiRes
+	2)安装跟新
+	 [root@mysql50 /]# rpm -Uvh mysql-community-*.rpm 
+	3)查看安装的软件包
+	[root@mysql50 /]# rpm -qa | grep -i mysql
+步骤三：启动MySQL数据库服务并设置开机自启
+	[root@localhost ~]# systemctl start mysqld                  //启动mysql服务
+	[root@localhost ~]# systemctl enable mysqld                 //设置开机自启
+	[root@localhost ~]# systemctl status mysqld                 //查看mysql服务状态
+	[root@mysql50 mysql]# ls /etc/my.cnf					//主配置文件
+	[root@mysql50 mysql]# ps aux | grep -i mysqld			//查看进程用户
+	[root@mysql50 mysql]# ps -C mysqld					//查看单个进程
+步骤四：连接MySQL服务器，修改密码
+	查看随机生成的root管理密码
+	/var/log/mysqld.log	 //初始化密码的配置文件
+	[root@localhost ~]#grep 'temporary password' /var/log/mysqld.log   //查看初始化密码 
+	2017-04-01T18:10:42.948679Z 1 [Note] A temporary password is generated for root@localhost: mtoa>Av<p6Yk        //随机生成的管理密码为mtoa>Av<p6Yk
+	2）使用客户端命令mysql连接到MySQL服务器
+	提示验证时，填入前一步获得的随机密码，验证成功后即可进入“mysql> ”环境：  
+	[root@localhost ~]# mysql -u root -p'mtoa>Av<p6Yk'
+	用该密码登录到服务端后，必须马上修改密码，不然会报如下错误：
+	mysql> show databases;
+	ERROR 1820 (HY000): You must reset your password using ALTER USER statement before executing this statement.
+	3）执行SET PASSWORD命令修改密码
+	可参考下列指令：
+	mysql> show variables like "%password%";		//查看密码设置
+	mysql>set global validate_password_policy=0;      //只验证长度
+	Query OK, 0 rows affected (0.00 sec)
+	mysql>set global validate_password_length=6；     //修改密码长度,默认值是8个字符 
+	Query OK, 0 rows affected (0.00 sec)
+	mysql> alter user user(用户) identified by "必须是数字，符号，大小写";  //修改登陆密码
+	Query OK, 0 rows affected (0.00 sec)
+	上述操作的结果是——更改数据库用户root从本机访问时的密码，设为123456。
+	退出“mysql> ”环境，重新登录验证，必须采用新的密码才能登入：
+	mysql> exit                                  //退出 mysql> 环境
+	Bye
+	[root@localhost ~]# mysql -u root -p        //重新登录
+	Enter password:                              //输入新设置的密码
+	修改密码永久有效：
+	[root@mysql50 mysql]# systemctl stop mysqld
+	[root@mysql50 mysql]# vim /etc/my.cnf
+	validate_password_policy=0
+	validate_password_length=6
+	[root@mysql50 mysql]# systemctl restart mysqld
+2 数据库基本管理
+	步骤一：使用mysql命令连接数据库
+	[root@dbsvr1 ~]# mysql -uroot -p123456          //紧挨着选项，不要空格
+	默认情况下，msyql命令会连接本机的MySQL服务。但在需要的时候，可以通过 -h 选项指定远程主机；
+	[root@dbsvr1 ~]# mysql -h 127.0.0.1 –u root –p 
+	步骤二：练习查看/删除/创建库的相关操作
+	库管理命令::
+	show databases;				//显示已有的库
+	use 库名					//库名
+	select   database();			//显示当前所在的库
+	create database 库名;			//创建新库
+	show tables;				//显示已有的表
+	drop database 库名;				//删除库
+	表管理命令::
+	create table  库名.表名（
+				字段名1 字段类型（宽度） 约束条件,
+				字段名2 字段类型（宽度） 约束条件,
+					);
+	表管理命令::
+	desc 表名;					//查看表记录
+	select * from 表名;				//查看表记录
+	drop table 表名;				//删除表
+	记录管理命令::
+	select * from 表名;				//查看表记录
+	insert into 表名   values（值列表）	//插入表记录
+	update 表名  set 字段=值;			//修改表记录
+	delete from  表名;				//删除表记录
+	设置表示用字符集   gb2312  utf8
+	DEFAULT CHARSET=utf8			//指定中文
+*****数据类型
+	常见的信息类型
+	数值性： 体重  身高  成绩   工资
+	字符性： 姓名   工作单位  通信住址
+	枚举性： 兴趣   性别
+	日期时间性   出身日期  注册时间
+	数值类型
+	整型	9  -19
+	浮点性	  有小数
+	单精度  float	
+	双精度	 double
+==================================================================
+						约束条件
+	
+	Null     		允许为空
+	Not Null		不允许为空
+	+---------+-----------+------+-----+-------------------+-----------------------------+
+	| Field   | Type      | Null | Key | Default           |                      |
+	+---------+-----------+------+-----+-------------------+-----------------------------+
+	| meeting | datetime  | YES  |     | NULL              |                             |
+	| party   | timestamp | NO   |     | CURRENT_TIMESTAMP |
+	+---------+-----------+------+-----+-------------------+-----------------------------+
+	key			搜索类型
+	Default		设置默认值，缺省为NULL
+案例：
+	mysql> create table t4(
+    	-> name char(10) not null,
+    	-> age tinyint not null default 25,
+    	-> likes set("eat","sleep","game","zhang") default "eat,sleep" );
+	mysql> insert into t4(name) values('bob');
+	mysql> select * from t4;
+	+------+-----+-----------+
+	| name | age | likes     |
+	+------+-----+-----------+
+	| bob  |  25 | eat,sleep |
+	+------+-----+-----------+
+	mysql> desc t4;
+	+-------+-----------------------------------+------+-----+-----------+-------+
+	| Field | Type                              | Null | Key | Default   | Extra |
+	+-------+-----------------------------------+------+-----+-----------+-------+
+	| name  | char(10)                          | NO   |     | NULL      |       |
+	| age   | tinyint(4)                        | NO   |     | 25        |       |
+	| likes | set('eat','sleep','game','zhang') | YES  |     | eat,sleep |       |
+	+-------+-----------------------------------+------+-----+-----------+-------+
+语法结构：
+	基本用法：
+	--alter table 表名   执行动作
+					|
+					add		添加字段
+					Modify	修改字段类型
+					change	修改字段名
+					drop		删除字段
+					rename	修改表名
+添加新字段：
+	基本用法：
+	--alter  table  表名
+				add 字段名  类型  约束条件；
+								可加 after  字段名
+									first；
+案例：：
+	mysql> desc t4;
+	+-------+-----------------------------------+------+-----+-----------+-------+
+	| Field | Type                              | Null | Key | Default   | Extra |
+	+-------+-----------------------------------+------+-----+-----------+-------+
+	| name  | char(10)                          | NO   |     | NULL      |       |
+	| age   | tinyint(4)                        | NO   |     | 25        |       |
+	| likes | set('eat','sleep','game','zhang') | YES  |     | eat,sleep |       |
+	+-------+-----------------------------------+------+-----+-----------+-------+
+	mysql> alter table t4 add email varchar(30) default  "stu@tedu.cn",
+    	-> add tel char(11);
+	mysql> alter table t4
+	add stu_num char(9) first;
+	mysql> alter table t4 add class char(7)
+    	-> default "nsd1808" after name;
+	mysql> desc t4
+	+---------+-----------------------------------+------+-----+-------------+-------+
+	| Field   | Type                              | Null | Key | Default     | Extra |
+	+---------+-----------------------------------+------+-----+-------------+-------+
+	| stu_num | char(9)                           | YES  |     | NULL        |       |
+	| name    | char(10)                          | NO   |     | NULL        |       |
+	| class   | char(7)                           | YES  |     | nsd1808     |       |
+	| age     | tinyint(4)                        | NO   |     | 25          |       |
+	| likes   | set('eat','sleep','game','zhang') | YES  |     | eat,sleep   |       |
+	| email   | varchar(30)                       | YES  |     | stu@tedu.cn |       |
+	| tel     | char(11)                          | YES  |     | NULL        |       |
+	+---------+-----------------------------------+------+-----+-------------+-------+
+	mysql> select * from t4;
+	+---------+------+---------+-----+-----------+-------------+------+
+	| stu_num | name | class   | age | likes     | email       | tel  |
+	+---------+------+---------+-----+-----------+-------------+------+
+	| NULL    | bob  | nsd1808 |  25 | eat,sleep | stu@tedu.cn | NULL |
+	+---------+------+---------+-----+-----------+-------------+------+
+修改字段类型：
+	基本用法：不能和以存在的发生冲突，不变的一定要原样写上
+	--alter  table  表名
+				modify 字段名 类型(宽度）约束条件；
+				可加 after  字段名
+				first；
+案例：
+	mysql> alter table t4 modify stu_num varchar(10);
+	mysql> desc t4 ;
+	+---------+-----------------------------------+------+-----+-------------+-------+
+	| Field   | Type                              | Null | Key | Default     | Extra |
+	+---------+-----------------------------------+------+-----+-------------+-------+
+	| stu_num | varchar(10)                       | YES  |     | NULL        |       |
+	| name    | char(10)                          | NO   |     | NULL        |       |
+	| class   | char(7)                           | YES  |     | nsd1808     |       |
+	| age     | tinyint(4)                        | NO   |     | 25          |       |
+	| likes   | set('eat','sleep','game','zhang') | YES  |     | eat,sleep   |       |
+	| email   | varchar(30)                       | YES  |     | stu@tedu.cn |       |
+	| tel     | char(11)                          | YES  |     | NULL        |       |
+	+---------+-----------------------------------+------+-----+------------
+	mysql> alter table t4 modify age tinyint default 25;
+	mysql> desc t4 ;
+	+---------+-----------------------------------+------+-----+-------------+-------+
+	| Field   | Type                              | Null | Key | Default     | Extra |
+	+---------+-----------------------------------+------+-----+-------------+-------+
+	| stu_num | varchar(10)                       | YES  |     | NULL        |       |
+	| name    | char(10)                          | NO   |     | NULL        |       |
+	| class   | char(7)                           | YES  |     | nsd1808     |       |
+	| age     | tinyint(4)                        | YES  |     | 25          |       |
+	| likes   | set('eat','sleep','game','zhang') | YES  |     | eat,sleep   |       |
+	| email   | varchar(30)                       | YES  |     | stu@tedu.cn |       |
+	| tel     | char(11)                          | YES  |     | NULL        |       |
+	+---------+-----------------------------------+------+-----+------------
+	mysql> alter table t4 modify age tinyint default 25 after name;
+	mysql> desc t4 ;
+	+---------+-----------------------------------+------+-----+-------------+-------+
+	| Field   | Type                              | Null | Key | Default     | Extra |
+	+---------+-----------------------------------+------+-----+-------------+-------+
+	| stu_num | varchar(10)                       | YES  |     | NULL        |       |
+	| name    | char(10)                          | NO   |     | NULL        |       |
+	| age     | tinyint(4)                        | YES  |     | 25          |       |
+	| class   | char(7)                           | YES  |     | nsd1808     |       |
+	| likes   | set('eat','sleep','game','zhang') | YES  |     | eat,sleep   |       |
+	| email   | varchar(30)                       | YES  |     | stu@tedu.cn |       |
+	| tel     | char(11)                          | YES  |     | NULL        |       |
+	+---------+-----------------------------------+------+-----+-------------+-------+
+修改字段名
+	--alter table 表名
+		change 源字段名  新字段名   类型个（宽度） 约束条件；
+案例：
+	mysql> alter table t4 change email mail varchar(30) default "stu@tedu.cn";
+	mysql> desc t4 ;
+	+---------+-----------------------------------+------+-----+-------------+-------+
+	| Field   | Type                              | Null | Key | Default     | Extra |
+	+---------+-----------------------------------+------+-----+-------------+-------+
+	| stu_num | varchar(10)                       | YES  |     | NULL        |       |
+	| name    | char(10)                          | NO   |     | NULL        |       |
+	| age     | tinyint(4)                        | YES  |     | 25          |       |
+	| class   | char(7)                           | YES  |     | nsd1808     |       |
+	| likes   | set('eat','sleep','game','zhang') | YES  |     | eat,sleep   |       |
+	| mail    | varchar(30)                       | YES  |     | stu@tedu.cn |       |
+	| tel     | char(11)                          | YES  |     | NULL        |       |
+	+---------+-----------------------------------+------+-----+-------------+-------+
+删除字段
+	基本用法：
+	--alter table 表名
+			drop 字段名；
+案例：
+	mysql> alter table t4 drop mail , drop class;
+	mysql> desc t4 ;
+	+---------+-----------------------------------+------+-----+-----------+-------+
+	| Field   | Type                              | Null | Key | Default   | Extra |
+	+---------+-----------------------------------+------+-----+-----------+-------+
+	| stu_num | varchar(10)                       | YES  |     | NULL      |       |
+	| name    | char(10)                          | NO   |     | NULL      |       |
+	| age     | tinyint(4)                        | YES  |     | 25        |       |
+	| likes   | set('eat','sleep','game','zhang') | YES  |     | eat,sleep |       |
+	| tel     | char(11)                          | YES  |     | NULL      |       |
+	+---------+-----------------------------------+------+-----+-----------+-------+
+修改表名
+	基本用法
+		--alter table 表名
+				rename 新表名；
+					|
+					表对应的文件名也会改变
+案例:
+	mysql> alter table t4 rename stutab;
+	mysql> select * from stutab;
+	+---------+------+------+-----------+------+
+	| stu_num | name | age  | likes     | tel  |
+	+---------+------+------+-----------+------+
+	| NULL    | bob  |   25 | eat,sleep | NULL |
+	+---------+------+------+-----------+------+
+======================================================================
+						mysql 键值
+mysql 搜索概述
+	索引：就是给字段进行排队
+1.键值类型：
+	index				//普通索引    标志：  mul
+用法：
+	--create index  搜索引  on 表名（表字段）
+	--drop index 搜索引  on  表名；
+	--show index from 表名\G;
+	unique			//唯一索引
+	fulltext			//全文索引
+	primary key			//主键   标志：PRI
+案例：
+	mysql> create table t5(
+    	-> name char(5),
+    	-> class char(7),
+    	-> stu_num char(9) primary key
+    	-> );
+	mysql> desc t5;
+	+---------+---------+------+-----+---------+-------+
+	| Field   | Type    | Null | Key | Default | Extra |
+	+---------+---------+------+-----+---------+-------+
+	| name    | char(5) | YES  |     | NULL    |       |
+	| class   | char(7) | YES  |     | NULL    |       |
+	| stu_num | char(9) | NO   | PRI | NULL    |       |
+	+---------+---------+------+-----+---------+-------+
+	复合主键当两个主键值只要有一个不同就可以写入。两个相同则不行
+案例：
+	创建复合主键：
+	mysql> create table t6(
+	    -> clientip char(15),
+	    -> serport smallint unsigned,
+	    -> status enum("allow","deny"),
+	    -> primary key(clientip,serport)
+	 -> );
+	mysql> desc t6;
+	+----------+----------------------+------+-----+---------+-------+
+	| Field    | Type                 | Null | Key | Default | Extra |
+	+----------+----------------------+------+-----+---------+-------+
+	| clientip | char(15)             | NO   | PRI | NULL    |       |
+	| serport  | smallint(5) unsigned | NO   | PRI | NULL    |       |
+	| status   | enum('allow','deny') | YES  |     | NULL    |       |
+	+----------+----------------------+------+-----+---------+-------+
+	写数据：
+	mysql> insert into t6 values("1.1.1.1",22,"deny");
+	Query OK, 1 row affected (0.04 sec)
+
+	mysql> insert into t6 values("1.1.1.1",22,"allow");
+	ERROR 1062 (23000): Duplicate entry '1.1.1.1-22' for key 'PRIMARY'
+	mysql> insert into t6 values("1.1.1.1",21,"allow");
+	Query OK, 1 row affected (0.04 sec)
+	
+	mysql> insert into t6 values("2.1.1.1",21,"allow");
+	Query OK, 1 row affected (0.03 sec)
+
+	删除主键
+	alter table 表名 drop primary key;
+	表以存在，创建复合主键
+	alter table 表名  add  primary key(字段名）
+	auto_increment 连用		//字段的值自动曾长
+			|
+			//数值类型必须是 primary key
+	案例：
+	创建t7表：
+	mysql> create table t7(
+	    -> id int primary key auto_increment,
+	    -> name char(10),
+	    -> age tinyint
+	    -> );
+	mysql> desc t7;
+	+-------+------------+------+-----+---------+----------------+
+	| Field | Type       | Null | Key | Default | Extra          |
+	+-------+------------+------+-----+---------+----------------+
+	| id    | int(11)    | NO   | PRI | NULL    | auto_increment |
+	| name  | char(10)   | YES  |     | NULL    |                |
+	| age   | tinyint(4) | YES  |     | NULL    |                |
+	+-------+------------+------+-----+---------+----------------+
+	写数据：
+	foreign mysql> insert  into t7(name,age) values("bob",19);
+	Query OK, 1 row affected (0.05 sec)
+	
+	mysql> insert  into t7(name,age) values("bsk",19);
+	Query OK, 1 row affected (0.04 sec)
+	
+	mysql> insert  into t7(name,age) values("bss",19);
+	Query OK, 1 row affected (0.03 sec)
+	mysql> select * from t7;
+	+----+------+------+
+	| id | name | age  |
+	+----+------+------+
+	|  1 | bob  |   19 |
+	|  2 | bsk  |   19 |
+	|  3 | bss  |   19 |
+	+----+------+------+
+	//id会自动曾长，不用父值
+	去掉自曾长
+	alter table 表名 modify 表字段名 类型 not null;
+	案例：
+	mysql> alter table t7 modify id int not null;
+	mysql> desc t7;
+	+-------+------------+------+-----+---------+-------+
+	| Field | Type       | Null | Key | Default | Extra |
+	+-------+------------+------+-----+---------+-------+
+	| id    | int(11)    | NO   | PRI | NULL    |       |
+	| name  | char(10)   | YES  |     | NULL    |       |
+	| age   | tinyint(4) | YES  |     | NULL    |       |
+	+-------+------------+------+-----+---------+-------+
+
+      key			//外键
+	表的存储引擎必须是innodb，字段类型必须一致，被参考的字段必须是（primary key）
+	基本用法：
+	--foreign key（表A的字段名）
+	   references 表B（字段名）
+		on update cascade   //同步更新
+		on delete cascade	  //同步删除
+案例：
+	1）建参考表
+	mysql> create table yg( yg_id int primary key auto_increment, name char(10) )engine=innodb;
+	mysql> desc yg;
+	+-------+----------+------+-----+---------+----------------+
+	| Field | Type     | Null | Key | Default | Extra          |
+	+-------+----------+------+-----+---------+----------------+
+	| yg_id | int(11)  | NO   | PRI | NULL    | auto_increment |
+	| name  | char(10) | YES  |     | NULL    |                |
+	+-------+----------+------+-----+---------+----------------+
+	mysql> insert into yg(name) values("bob");
+	mysql> insert into yg(name) values("tom");
+	mysql> select * from yg;
+	+-------+------+
+	| yg_id | name |
+	+-------+------+
+	|     1 | bob  |
+	|     2 | tom  |
+	+-------+------+
+	2) 建外键
+	mysql> create table gz(
+   		 -> gz_id int,
+   		 -> pay float(7,2),
+   		 -> foreign key(gz_id) references yg(yg_id)
+   		 -> on update cascade on delete cascade
+   		 -> )engine=innodb;
+	mysql> show create table gz;  		//查看建表过程
+	CONSTRAINT `gz_ibfk_1`			//外键名
+	3）验证：
+	mysql> insert into gz values(1,25000);
+	mysql> insert into gz values(2,25000);
+	mysql> insert into yg(name) values("wangba");
+	mysql> insert into gz values(3,25000);
+	mysql> select * from gz;
+	+-------+----------+
+	| gz_id | pay      |
+	+-------+----------+
+	|     1 | 25000.00 |
+	|     2 | 25000.00 |
+	|     3 | 25000.00 |
+	+-------+----------+
+	//gz表和yg表的id个数要保持一直
+	3)同步更新和同步删除
+	mysql> delete from yg where yg_id=1;			//删除
+	mysql> select * from gz;
+	+-------+----------+
+	| gz_id | pay      |
+	+-------+----------+
+	|     2 | 25000.00 |
+	|     3 | 25000.00 |
+	+-------+----------+
+	mysql> update yg set yg_id=8 where yg_id=2;	//更改
+	mysql> select * from gz;
+	+-------+----------+
+	| gz_id | pay      |
+	+-------+----------+
+	|     8 | 25000.00 |
+	|     3 | 25000.00 |
+	+-------+----------+
+	4)加主键（//防止一个表有多个重复的表字段出现）
+	mysql> alter table gz add primary key(gz_id);
+	mysql> select * from gz;
+	+-------+----------+
+	| gz_id | pay      |
+	+-------+----------+
+	|     3 | 25000.00 |
+	|     8 | 25000.00 |
+	+-------+----------+
+	2 rows in set (0.00 sec)
+	2.删除外键字段：
+	--alter table 表名 drop foreign key 约束名;
 	
 
 
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+	
+	
 
 
 
