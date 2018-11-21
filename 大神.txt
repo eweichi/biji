@@ -5468,23 +5468,141 @@ mysql 搜索概述
 	mysql> select host,user from mysql.user;  				//查看访问权限
 	mysql> show grants for webadmin@"192.168.4.254";
 	mysql> revoke grant option on *.* from root@"%";			//撤销授权用户的授权权限
+	mysql> drop user root@"%";						//删除授权用户
+===============================================================================
+						mysqldump
+	1.数据库备份
+	方式：
+	1)物理备份：	//不适合备份莫个库innodb
+	-冷备份：
+		-冷备：cp  tar
+		//恢复数据时要保证权限不变
+	2)逻辑备份：使用mysql命令或者安装其他第三方软件
+		-mysqldump
+		-mysql
+	2.数据备份策略：
+	1）完全备份
+		-备份所有数据
+	2）曾量备份
+		-备份上次备份后，所有新产生的数据
+	3）差异备份
+		-备份完全备份后，所有新产生的数据
+	3.逻辑备份及恢复
+	1)备份操作
+		-mysqldump -uroot -p密码 -A > 路径/xxx.sql 
+						|
+					      所有库
+	2）恢复操作
+		-mysql -uroot -p密码 库名 < 路径/xxx.sql
+	4.库名表示方式
+		- --all-databases 或 -A  	//所有库
+		-  数据库名			//单铬库
+		-  数据库名  表名		//但张表
+		- -B 数据库1 数据库2		//多个库
+		//无论备份还是恢复，都要验证用户权限
+	5.实时增量备份
+	1）启用binlog日志，实时备份  
+		-记录除查询之外的所有SQL命令
+		-可用于数据恢复
+		-配置mysql主从同步的必要条件
+	2）vim  /etc/my.cnf
+		log_bin=文件名路径		//启用binlog日志，新建的文件要改权限
+		server_id=100		//指定id值，默认500M
+		binlog_format=mixed	//记录命令和结果
+	3）binlog相关文件
+		-主机名-bin,index		//记录已有的日志文件
+		-主机名-bin.0000001		//第1个二进制
+		-主机名-bin.0000002		//第二个二进制
+		//手动形成新的日志文件
+		1.mysql> flush logs;
+		2.mysqldump --flush-logs
+		3.mysql-uroot -p密码 -e'flush logs' > 日志文件路径
+	4）清理binlog日志文件
+		mysql> show master status;		//查看当前已有的日志文件
+		+------------+----------+--------------+------------------+-------------------+
+		| File       | Position | Binlog_Do_DB | Binlog_Ignore_DB | Executed_Gtid_Set |
+		+------------+----------+--------------+------------------+-------------------+
+		| plj.000001 |      154 |              |                  |                   |
+		+------------+----------+--------------+------------------+-------------------+
+		删除早于指定版本的binlog日至
+		-purge master logs to “binlog文件名”
+		删除所有binlog日志，重新建日志文件
+		-rese master；
+	5）分析binlog日志
+		1）查看日志当前记录格式：
+		mysql> show variables like "binlog_format";
+		+---------------+-------+
+		| Variable_name | Value |
+		+---------------+-------+
+		| binlog_format | ROW   |
+		+---------------+-------+
+		2）修改日志记录格式  			//三种记录格式
+		//1.statement			记录SQL命令
+		//2.row				记录结果
+		//3.mixed				记录命令和结果
+		3）使用binlog日志
+		格式：mysqlbinlog [选项]	binlog日志文件名
+		查看日志文件：
+		mysqlbinlog       日志文件名  | grep -i select
+						   | grep -i insert
+						   | grep -i update
+						   | grep -i delete	
+		常用选项：
+			--start-datetime="yy-nn-dd hh:mm:ss"
+			--stop-datetime="yy-mm-dd hh:mm:ss"
+			--start-position=数字
+			--stop-position=数字   
+	6.innobackupex备份/恢复
+		xtrabackup工具
+		组建：
+			//-xtrabackup  支持innodb/xtrabackup
+			//-innobackuppex   支持perl脚本封装xtrabackup,还支持myisam
+	步骤一：安装XtraBackup软件包	
+	1）了解软件包描述信息d
+	[root@dbsvr1 pub]# rpm -qpi percona-xtrabackup-24-2.4.6-2.el7.x86_64.rpm
+	2）安装依赖包perl-DBD-MySQL perl-Digest-MD5 libev
+	使用RHEL 7自带的即可，yum方式安装：
+	[root@dbsvr1 pub]# yum -y install perl-DBD-MySQL perl-Digest-MD5
+	libev使用网上找的rpm包 libev-4.15-1.el6.rf.x86_64.rpm 
+	[root@dbsvr1 pub]#rpm –ivh libev-4.15-1.el6.rf.x86_64.rpm
+	//如果未安装这些依赖包，则直接安装percona-xtrabackup时会报错：
+	3）安装percona-xtrabackup
+	[root@dbsvr1 pub]#rpm -ivh percona-xtrabackup-*.rpm
+	4）确认安装的主要程序/脚本
+	[root@dbsvr1 pub]# rpm -ql percona-xtrabackup-24-2.4.6-2.el7.x86_64
+	--host 主机名
+	--port 3306
+	--user 用户名
+	--password 密码
+	--databases="库名"
+	--databases="库1 库2"
+	--databases="库.表"
+	--no-timestamp 不用日期命名备份文件存储的子目录，使用备份的数据库名做备份目录名
+	--no-timestmap 不使用日期命名备份目录名
+	1）做一个完整备份
+	//默认情况下，备份文件存储的子目录会用日期命名，
+	innobackupex作为客户端工具，以mysql协议连入mysqld，将数据备份到/backup文件夹：
+	常用选项：
+	--redo-only					//日志合并
+	--apply-log					//准备还原
+	--copy-back					//恢复数据
+	--incremental 目录名			//曾量备份
+	--incremental-basedir=目录名		//曾量备份，指定上一次备份数据的目录名
+	--incremental-dir=目录名			//准备恢复数据时，指定曾量备份数据存储的目录名
+	--export					//导出表信息
+	import					//导入表空间
+	1）做一个完整备份
+	innobackupex作为客户端工具，以mysql协议连入mysqld，将数据备份到/backup文件夹：
+	[root@mysql50 /]# innobackupex --user root --password 123456 /allbsck --no-timestamp
+											    |
+											必须是空目录
+	2）完全恢复数据
+	步骤：
+	1.准备恢复数据
 	
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+	2.拷贝备份数据到数据库目录下
+	3.修改文件所有者和组用户为mysl
+	4.启动数据库服务
 
 
 
