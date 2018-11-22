@@ -5597,12 +5597,74 @@ mysql 搜索概述
 											    |
 											必须是空目录
 	2）完全恢复数据
-	步骤：
+	步骤：  
 	1.准备恢复数据
-	
+	[root@mysql50 ~]# rm -rf /var/lib/mysql
+	[root@mysql50 ~]# mkdir /var/lib/mysql
 	2.拷贝备份数据到数据库目录下
+	[root@mysql50 ~]# chown mysql:mysql /var/lib/mysql
 	3.修改文件所有者和组用户为mysl
+	[root@mysql50 ~]# chown mysql:mysql /var/lib/mysql
 	4.启动数据库服务
+	3)增量备份：
+	//首先要做完全备份（第一v次要把所有的数据都备份）
+	[root@mysql50 /]# innobackupex --user root --password 123456 /allbsck --no-timestamp
+	//做曾量备份
+	innobackupex --user root --password 123456 --incremental /new1dir --incremental-basedir=/allbsck --no-timestamp
+	 innobackupex --user root --password 123456 --incremental /new2bir --incremental-basedir=/new1dir --no-timestamp
+	3)增量恢复
+	//准备恢复数据
+	innobackupex --apply-log --redo-ony /allbsck/
+	//合并日志文件
+	innobackupex --apply-log --redo-only /allbsck --incremental-dir=/new1dir
+	innobackupex --apply-log --redo-only /allbsck --incremental-dir=/new2dir
+	//把备份目录下的数据拷贝到数据库目录下
+	innobackupex --copy-back /allbsck
+	//修改数据库目录的权限
+	chown -R mysql:mysql /var/lib/mysql
+	//启动数据库服务
+	systemctl restart mysqld
+	4)恢复单个表
+	[root@mysql51 ~]# innobackupex --user root --password 123456 --database="db4" /db4bck --no-timestamp		//备份db4库
+	创建一个和丢失表的表结构一样的表
+	mysql> create table t7(name char(10));
+	删除表空间文件
+	mysql> alter table db4.t7 discard tablespace;
+				   |
+				丢失库中表的空间文件
+	导出表信息
+	[root@mysql51 mysql]# innobackupex --user root --password 123456 --apply-log --export /db4bck
+	把导出的表信息拷贝到数据库目录下
+	[root@mysql51 mysql]# cp /db4/db4/t7.{cfg,exp,frm,ibd} /var/lib/mysql/db4/
+	[root@mysql51 mysql]# chown mysql:mysql /var/lib/mysql/db4/*
+	导入表空间
+	mysql> alter table db4.t7 import tablespace;
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
