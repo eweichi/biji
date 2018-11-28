@@ -1,0 +1,425 @@
+	
+	MySQL视图
+	-虚拟表
+	-内容与真实的表相似，有字段有记录
+	-视图并不在数据库中以存储的数据形式存在
+	-行和列的数据来定义视图时查询所引用的基表，并且在具体引用视图时动态生成
+	-更新视图的数据，就是更新基表恶毒数据    #基表就是物理的真实表
+	-更新基表数据，视图的数据也会跟着改变
+
+	视图优点
+	简单：-用户不需要关心视图中的数据如何查询获得
+	       -视图中的数据已经时过滤好的符合条件的结果集	
+	安全：-用户只能看到视图中的数据
+	数据独立：一旦视图结构确定，可以屏蔽表结构多用户的影响
+	
+	视图使用限制
+	-不能在视图上创建引索
+	-在视图的FROM子句不能使用子查询
+	-以下的情形的时视图是不可更新的
+	1）包含以下关键字的SQL语句：聚合函数（SUM，MIN，MAX，COUNT等），DISTINCT，GROUP BY，HAVING，
+		UNION或UNION ALL
+	2）常用视图，JOIN，FROM一个不能更新的视图
+	3）WHERE子句的子查询引用了FROM子句中的表
+	4）使用的临时表
+
+	
+	创建视图
+	-create view 视图名称  as  SQL查询；
+	-create view 视图名称（字段名列表）  as  SQL查询；
+	#不定以字段名的话，默认使用基表的字段名，若定义，视图表中的字段必须和基表的字段个数相等。
+	
+	
+	查看视图
+
+	-show table status;
+	-show table status where comment="view"\G;
+
+	查看创建视图具体命令
+	-show create view 视图名；
+	
+	使用视图
+	-查询记录
+	-select 字段名列表  from 视图名  where;
+	-插入记录
+	-insert into 视图名(字段名列表)  vlaues（字段值列表）；
+	
+	更新记录
+                  	-update 视图名 set 字段=值 where 条件；
+	mysql> update v1 set name="aaaa" where id=42;
+
+	删除记录
+	-delete from 视图名  where 条件；
+	mysql> delete from v1 where id=43;
+
+
+
+	创建视图的完全格式
+	-create or replace view 视图名  as select 查询；
+	-创建时，若视图以存在，会替换以有的视图
+
+	-视图表的字段不可以重复所以要定义别名
+	-create view 视图名  as  select 表名.源字段别名  from 源表名  表别名  
+	left join 源表名  表别名 on 条件；
+	mysql> create table t1 select name,uid,shell from user limit 3;
+	mysql> create table t2 select name,uid,homedir,shell from user limit 6
+
+	mysql> create view v4 as select t1.name as aname ,t2.name as bname 
+		from t1,t2 where t1.name=t2.name;
+	mysql> select * from v4;
+	+--------+--------+
+	| aname  | bname  |
+	+--------+--------+
+	| root   | root   |
+	| bin    | bin    |
+	| daemon | daemon |
+	+--------+--------+
+	
+	with check option决定检查范围
+	-LOCAL仅检查当前视图的限制
+	-CASCADED 同时要满足基表的限制（默认值）
+	当不指定检查范围时可以随便添加数据，但不满足视图的条件则查询不出来，在基表可查询
+
+	mysql> create table user2 select name,uid,gid,homedir,shell from user where uid 
+		between 10 and 50;              创建user2表uid10到50之间
+
+	mysql> create or replace view v1  as select * from user where  uid<10 with check option;
+	
+	mysql> create or replace view v2 as  select name,uid,homedir from v1
+		 where uid>=5 with local check option;
+	
+	验证
+	mysql> insert into v2(uid) values(9);    #v1和v2表的条件相加就等于5～10之间，v2表示基于v1的
+	Query OK, 1 row affected (0.02 sec)
+
+	mysql> insert into v2(uid) values(11);
+	ERROR 1369 (HY000): CHECK OPTION failed 'db9.v2'
+
+	mysql> insert into v2(uid) values(1);
+	ERROR 1369 (HY000): CHECK OPTION failed 'db9.v2'
+
+#########################################################################################
+	
+	MySQL存储过程
+	存储过程相当于MySQL语句组成的脚本
+	-指的是数据库中保存的一系列SQL命令的集合
+	-可以在存储过程中使用变量，条件判断，流程控制等
+	
+	存储过程优点
+	-提高性能
+	-可减轻网络负当
+	-可以防止对表的直接访问
+	-避免重复编写SQL操作
+	
+	基本使用
+	存储过程一定要在某个库
+	1）创建存储过程
+	mysql> delimiter  //            #定义定界符        #delimiter修改命令结束的符号
+	mysql>  create procedure p1()  #say()随便写括号一定要有
+   	  -> begin
+   	  -> select * from user where id<=10;  #SQL命令
+  	  -> end
+   	   -> //
+	Query OK, 0 rows affected (0.01 sec)
+	mysql> delimiter ;        #把命令的定界符改回来，分号前有空格
+	mysql> call q1();        #调用存储过程名,在括号里面不写参数时，可以不加括号
+	
+	2）查看存储过程
+	mysql>  show  procedure  status\G;      #查看当前库的存储过程
+	
+	mysql>  select db,name,type from mysql.proc where name= "q1";  
+		 #查看整个数据库的存储    type 字段下为procedure为存储过程
+	
+	mysql> select db,name,body from mysql.proc where name="q1"\G;
+		#查看存储过程使用了哪些命令
+
+	3）删除存储过程
+	mysql> drop procedure q1;            #要在当前库下操作
+
+
+	变量类型
+	-会话变量：修改变量只对当前用户生效，退出则失效
+	-全局变量：修改变量会影响整个服务器
+	-会话变量和全局变量 称为系统变量
+	-用户变量：定义 set @变量名=值；  #定义的变量只对当前有效，退出无效
+		 ：输出 select @变量名；
+
+	-局部变量：指可以在存储过程中begin... ...end中设置，存储过程执行完变量无效。declare专门用来定义局部变量
+          	#注意局部变量 和 参数变量 调用时 变量名前不需要加@	
+
+
+	演示
+	mysql> delimiter //
+	mysql> create procedure say48()
+    -> begin
+    -> declare x int default 9;     #注意定义变量时declare一定要写在一起；
+    -> declare y char(10);
+    -> set y="jim";
+    -> select x ; select y;
+    -> end
+     -> //
+	mysql> delimiter ;
+	
+	mysql> select name into @x from db9.user where id=1;  #查询结果赋值给用户变量
+	
+
+	定义局部变量可以覆盖，最后定义的生效
+	mysql> delimiter //
+	mysql> create procedure q2()
+    -> begin
+    -> declare y int default 1;
+    -> select y;
+    -> select count(id) into y from db9.user;   #把查询结果赋值给变量
+    -> select y;
+    -> end
+     -> //
+ 	mysql> delimiter ;
+
+
+	参数类型
+	调用参数不需要加@
+	-create prcoaduer 名称（类型  参数名  数据类型 ，类型  参数名  数据类型）
+	in     输入类型               给存储过程传参数  
+	out    输出参数       	接受存储过程的参数，接受命令的处理结果，不传参数，一定要写变量占位
+	inout  输入/输出参数	调用指定，并且可改变和返回
+
+	演示
+	in类型的使用
+	mysql> delimiter //
+	mysql> create procedure db9.p6(in shellname char(30))
+    -> begin
+    -> declare x int default 0;
+    -> select count(name) into x from db9.user where shell=shellname;
+    -> select x;
+    -> end
+     -> //
+	mysql> delimiter ;
+	mysql> set @x="/bin/bash";       #定义用户变量
+	mysql> call p6(@x);		  #调用变量
+	
+	out类型的使用
+	mysql> delimiter //
+	mysql> create procedure db9.p7(in shellname char(30),out number int)
+    -> begin
+    -> select count(name) into number from db9.user where shell=shellname;
+    -> select number;
+    -> end
+     -> //
+	
+	mysql> delimiter ;
+	mysql> call db9.p7(@x,@w);   #out类型一定要写变量名，不可直接赋值，但也不接受值，变量只占为
+	
+	inout类型的使用
+	mysql> delimiter //
+	mysql> create procedure db9.p8(inout x char(30))
+    -> begin
+    -> select x;
+    -> select name into x from db9.user where  id=1;
+    -> select x;
+    -> end
+     -> //
+	mysql> delimiter ;
+	mysql> set @q="jiji";
+
+	mysql> call db9.p8(@q);
+	+------+
+	| x    |
+	+------+
+	| jiji |
+	+------+
+	1 row in set (0.00 sec)
+
+	+------+
+	| x    |
+	+------+
+	| root |
+	+------+
+	1 row in set (0.00 sec)
+
+##############################################################################################
+
+	算数运算
+	+    加法运算      set @s=2+2；      4
+	-     减法运算      set @s=2-2；      0
+	*     乘法运算      set @s=2*3；      6
+	/     除法运算      set @s=10/3；     3.3333333    #除法运算结果取整数
+	DIV  整数运算      set @s=10 DIV 3； 3
+	%      取模          set @s=10%3； 1
+
+	mysql>  set @q=1; set @y=2; set @z=@q*@y; select @z;
+	
+	mysql> delimiter //
+	mysql> create procedure db9.p10(in bash char(30),in onlogin char(30))
+		 begin 
+		 declare x int;
+		 declare t int;
+		 declare z int;
+		 set x = 0 ;
+		 set t = 0 ;	
+		 select count(name) into x from db9.user where shell=bash;
+		 select count(name) into t from db9.user where shell=onlogin;
+		 set z = x + t ;
+		 select z;
+		 end//
+	mysql> delimiter ;
+	
+	
+########################################################################################
+
+	流程控制
+	
+	条件测试
+	=  等于；   >,>=    #大于，大于或等于
+	<,<=                #小于，小于或等于
+	！=                   #不等于
+	BETWEEN...AND...       在...与...之间
+	
+	OR，AND，！  		#逻辑或，逻辑与，逻辑非
+	IN...  ,   NOT IN ...   #在.....范围 ， 不在....范围
+	IS NULL         #字段的值为空
+	IS NOT NULL     #字段的值不位空
+	LIKE            #模糊匹配
+	PEGEXP           #正则匹配、
+##############################################################################################
+	选择结构
+	单分支结构
+	-当“条件成立”时执行命令序列
+	双分支结构
+	-当“条件成立”时执行行代码1；否则执行代码2
+	
+	单分支演示	
+	mysql> delimiter //
+	mysql> create procedure db9.p13(in linenum int)
+    -> begin
+    -> if 1=linenum then 
+    -> select * from db9.user where id=1;
+    -> select * from db9.user where id=2;
+    -> end if;
+    -> end
+    -> //
+
+	mysql> call db9.p13(1);      #输出有结果
+	mysql> call db9.p13(5);	    #输出没结果
+	
+##############################################################################################
+	循环结构
+	-while  条件   do
+		循环体（代码）
+	end while；
+
+	mysql> delimiter //
+	mysql> create procedure db9.p15()
+		 begin
+		 declare x int default 1;
+		 while x <= 5 do
+		 select * from db9.user where id=1;
+		 set x = x + 1;
+		 end while;
+		 end//
+	mysql> delimiter ;
+
+###############################################################################################
+	loop死循环
+	loop 
+		循环体
+	end loop;
+
+	mysql> create procedure db9.p16()
+	 declare x int default 1;
+	 loop
+	 select x;
+	 end loop; 
+	 end//
+
+#####################################################################################
+
+
+	repeat条件式循环
+	repeat
+		循环体（代码）
+	until  判断条件不用分号     当条件不成立时死循环， 成立时只循环一次
+	end repeat；
+ 
+	mysql> create procedure db9.p17()              #输出两次
+		 begin
+		 declare x int default 1;
+		 repeat select * from db9.user where id=1;
+		 set x = x+1;
+		 until x>=3  
+		 end repeat;
+		 end//
+##############################################################################
+
+	控制循环的执行
+	-LEAVE      标签名        #跳出循环
+	-ITERATE   标签名         #放弃本次循环，执行下一次循环
+
+	mysql> create procedure db9.p19()
+	-> begin declare x int default 1;
+     	-> local1:while x <= 10 do
+     	-> if x = 3 then
+     	-> leave local1;
+     	-> end if;
+     	-> select x;
+     	-> set x = x + 1;
+     	-> end while;
+     	-> end 
+       	-> //
+	mysql> delimiter ;
+	mysql> call db9.p19();
+	
+
+	mysql> create procedure db9.p20()
+    -> begin
+    -> declare x int default 1;
+    -> local2:while x <= 10 do
+    -> if x = 3 then
+    -> set x = x + 1;
+    -> ITERATE local2;
+    -> end if;
+    -> select x;
+    -> set x = x + 1;
+    -> end while;
+    -> end
+     -> //
+	mysql> delimiter ;
+	mysql> call db9.p19();
+
+######################################################################################
+	计算出user表中uid为偶数的的个数
+	mysql> create procedure db9.p21()
+    -> begin
+    -> declare sumline int;
+    -> declare x int;
+    -> declare i int;
+    -> declare j int;
+    -> set i = 0;
+    -> set x = 1;
+    -> select count(id) into sumline from db9.user;
+    -> while x <= sumline do
+    ->    select uid into j from db9.user where id=x;
+    ->    if  j % 2 = 0 then
+    ->    set i = i + 1;
+    ->    end if;
+    ->    set x = x + 1;
+    -> end while;
+    -> select i;
+    -> end
+     -> //
+	#sumilne为id的总行数，x为id的自增变量，i为uid为偶数的个数有几个，j为每一行的uid值。
+	
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
