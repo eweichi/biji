@@ -1,0 +1,158 @@
+	什么时分库分表
+	-将存在一个数据库（主机）中的数据，按照特定方式进行拆分，分散存放到多个数据库（主机）中，
+	以达到分散单台设备的负载的效果
+	
+	垂直分割
+	-将单个表，拆分成多个表，分散到不同的数据库
+	-将单个数据库的多个表进行分类，按业务类别分散到不同的数据库上
+	
+	水平分割
+	
+   	-按照表中的某个字段的某种规则，把表中的许多记录按行切分，分散到多个数据库中
+	
+	
+	
+	mycat介绍   默认端口8066
+	mycat是基于java的分布式数据库系统中间层，为高并发环境分布访问提供解决方案
+	-支持JDBC形式连接
+	-支持MySQL，Oracle,Sqlserver,Mongodb等
+	-提供inig数据读写分离服务
+	-可以实现数据库服务器的高可用
+	-提供数据分片服务
+	-基于阿里巴巴Codar进行研发的开源软件
+	-适合数据大量写入数据的存储需求
+
+
+	分片规则
+	1.枚举法：sharbing-by-intfile       #对应的算法hash-int
+	2.固定分片： rule1
+	3.范围约定：auto-sharbing-long
+	4.求模法：mod-long
+	5.日期列分区法：sharbing-by-date
+	6.通配取模：sharbing-by-pattern
+	7.ASCII码求模通配：sharbing-by-prefixpattern
+	8.编程指定：sharbing-by-substring
+	9.字符串拆分hash解析sharbing-by-stringhash
+	10.一致性：hash   sharbing-by-murmur
+
+
+	当mycat收到一个SQL查询时
+	-先解析这个SQL查找涉及到的表
+	-然后看到此表的定义，如果有分片规则，则获取SQL里分片字段的值，并匹配分片函数，获得分片列表
+	-然后将SQL发往这些分片去执行
+	-最后收集和处理所有分片结果数据，并返回到客户端
+
+
+	配置mycat
+	检查是否安装
+	56 ~]# rpm -qa | grep -i jdk
+	mycat]# yum -y install java-1.8.0-openjdk
+	加压所需软件包	
+	mycat]# tar -xf Mycat-server-1.4-beta-20150604171601-linux.tar.gz 
+	把软件转移到系统默认的目录中	
+	mycat]# mv /root/mycat /usr/local/
+	
+	修改配置文件
+	重要配置文件说明：
+
+	server.xml 设置连mycat的账号信息
+	配置标签说明
+
+	<user>.. ..</user> 定义连mycat用户信息
+
+	<datanode>.. ..</datanode> 指定数据节点
+
+	<datahost>.. ..</datahost> 指定数据库地址及用户信息
+
+
+
+	schema.xml 配置mycat的真实库表
+
+	rule.xml   定义mycat分片规则    #在里面注释符号<!--    -->
+
+	conf]# vim server.xml
+	34         <user name="admin">    #设置客户端访问mycat的用户
+ 	35                 <property name="password">123456</property>   #密码
+ 	36                 <property name="schemas">TESTDB</property>
+#连接上mycat服务后，可以看到的库名多个时，使用逗号分隔 （是逻辑上的库名,服务器上没有这个库名，随便取，但要记住）
+ 	37         </user>
+
+	
+	conf]# vim schema.xml               #注意拷贝一份保守
+  7	<table name="travelrecord" dataNode="dn1,dn2" rule="auto-sharding-long" />
+	#travelrecord（逻辑上的，名字不能随便写，一般不动）表分片到数据节点dn1和dn2，dn1和dn2随便取的名字
+      #rule="auto-sharding-long" 指定规则 
+
+  11	<table name="company" primaryKey="ID" type="global" dataNode="dn1,dn2" />
+  12	<table name="hotnews" primaryKey="ID" dataNode="dn1,dn2" rule="mod-long" />
+
+  37	<dataNode name="dn1" dataHost="mysql54" database="db1" />
+	#数据节点对应的服务器 name="dn1"名称要与上面的对应 dataHost="mysql54"写本机主机名，
+	#database="db1"存在的数据库名,定义分片使用的库，所在的物理主机，真正存储数据的db1库在物理主机mysql55上
+ 
+ 38	<dataNode name="dn2" dataHost="mysql55" database="db2" />
+	#定义分片使用的库，所在的物理主机，真正存储数据的db1库在物理主机mysql55上
+	
+	指定mysql54名称主机对应的ip地址
+  43	<dataHost name="mysql54" maxCon="1000" minCon="10" balance="0"
+  44  writeType="0" dbType="mysql" dbDriver="native" switchType="1" slaveThreshold="100"> 
+  45                 <heartbeat>select user()</heartbeat>
+  46              <!-- can have multi write hosts -->
+  47            <writeHost host="mysql54" url="192.168.4.54:3306" user="plj"        
+  48                    password="123456">
+        #访问数据库时，mycat服务连接数据库服务器时使用的用户名和密码,要在54进行授权相关用户
+  49                     <!-- can have multi read hosts -->
+  50            </writeHost>
+  55    </dataHost>
+
+	指定mysql55名称主机对应的ip地址
+  43	<dataHost name="mysql55" maxCon="1000" minCon="10" balance="0"
+  44  writeType="0" dbType="mysql" dbDriver="native" switchType="1" slaveThreshold="100"> 
+  45                 <heartbeat>select user()</heartbeat>
+  46              <!-- can have multi write hosts -->
+  47            <writeHost host="mysql55" url="192.168.4.55:3306" user="plj"        
+  48                    password="123456">
+        #访问数据库时，mycat服务连接数据库服务器时使用的用户名和密码,要在55进行授权相关用户
+  49                     <!-- can have multi read hosts -->
+  50            </writeHost>
+  55    </dataHost>
+
+	
+
+	数据库授权54和55都要做
+	mysql>  grant all on *.* to plj@"%" identified by "123456";
+	在配置文件/etc/my.cnf 加 lower_case_table_names=1   区分大小写
+	
+	在mycat服务器上启动服务
+	56 ~]# /usr/local/mycat/bin/mycat start         #启动mycat服务
+	56 ~]# ss -nulpt | grep 8066                    #查看8066端口是否有
+	56 ~]# ls /usr/local/mycat/logs/wrapper.log     #出错看报错日志              
+	56 ~]# tail -f /usr/local/mycat/logs/wrapper.log  #动态看日志
+	如果起不来服务，日志文件也没有报错信息，可能是内存不足或授权用户不对，
+
+
+	客户端访问
+	命令： mysql -hmycat主机的IP -P端口号 -u用户 -p密码
+
+	
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
