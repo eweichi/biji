@@ -1,0 +1,151 @@
+系统安全保护
+SELinux安全机制
+SELinux概述
+• SELinux的运行模式
+	– enforcing(强制)、permissive(宽松)
+	– disabled(彻底禁用)任何模式变成disabled都要重起才可以
+    • 切换运行模式
+	– 临时切换:setenforce  1|0    #本次开机临时切换状态
+     – 固定配置:/etc/selinux/config 文件
+两台虚拟机修改SELinux状态：
+	[root@server0 ~]# getenforce       #查看当前SELinux的运行模式
+	Enforcing
+	[root@server0 ~]# setenforce 0     #修改当前运行模式
+	[root@server0 ~]# getenforce 
+	Permissive
+	[root@server0 ~]# vim /etc/selinux/config   #每次开机运行模式
+	SELINUX=permissive
+SElinux布尔值：（服务功能的开关   on 或 off）
+ 	[root@server0 ~]# getsebool -a
+	
+========================================
+搭建基本FTP服务:文件传输
+	1.安装软件包vsftpd
+	[root@server0 ~]# yum -y install vsftpd
+
+	2.重起vsftpd服务
+	[root@server0 ~]# systemctl restart vsftpd
+	[root@server0 ~]# systemctl enable vsftpd
+
+	3.本机测试验证
+	[root@server0 ~]# firefox ftp://172.25.0.11
+
+	4.默认vsftpd共享路径 /var/ftp/
+========================================
+搭建基本Web服务
+服务端：虚拟机Server0
+1.安装软件包 Apache（httpd）   
+	[root@server0 ~]# yum -y install httpd
+
+2.重起httpd服务
+	[root@server0 ~]# systemctl restart httpd  #重起httpd服务
+	[root@server0 ~]# systemctl enable httpd   #设置为开机自启动
+	ln -s '/usr/lib/systemd/system/httpd.service' '/etc/systemd/system/multi-user.target.wants/httpd.service'
+
+3.本机访问测试
+	[root@server0 ~]# firefox 172.25.0.11    #本机访问本机
+
+4.书写一个自己的页面文件
+  	默认网页文件存放路径：/var/www/html
+  	默认主页文件名称： index.html
+	[root@server0 ~]# vim /var/www/html/index.html
+	<marquee><font color=red><h1>NSD1807
+ 	 滚动                红色              字体变大
+
+	[root@server0 ~]# firefox 172.25.0.11   
+===========================================
+
+硬件防火墙
+
+  软件防火墙： firewalld 
+
+• 管理工具:firewall-cmd（命令）、firewall-config（图形）
+	预设安全区域
+	• 根据所在的网络场所区分,预设保护规则集
+	– public:仅允许访问本机的sshd dhcp ping等少数几个服务
+	– trusted:允许任何访问
+	– block:阻塞任何来访请求,明确拒绝
+	– drop:丢弃任何来访的数据包，直接丢弃
+防火墙默认区域：public
+防火墙进入区域的判断规则：匹配及停止
+	1.查看访问请求中源IP地址，查询所有的区域中，哪个区域有该源IP地址的策略，则进入该区域
+	2.进入默认区域即可
+=======================================================
+配置IPv6地址
+
+IPv4地址:32个二进制组成,以 点 分隔 4 部分,最终用4个十进制表示
+
+IPv6地址:128个二进制组成,以 冒号 分隔 8 部分,每部分由 4个16进制数表示
+
+– 每段内连续的前置 0 可省略、连续的多个 : 可简化为 ::
+– 例如: 2003:ac18:0000:0000:0000:0000:0000:0305
+      2003:ac18::305/64
+
+
+为两个虚拟机的接口 eth0 配置下列 IPv6 地址
+– server0 上的地址应该是 2003:ac18::305/64
+
+	[root@server0 ~]# nmcli connection modify 'System eth0'  
+  	ipv6.method manual ipv6.addresses 2003:ac18::305/64 
+  	connection.autoconnect yes
+
+	[root@server0 ~]# nmcli connection up 'System eth0'
+
+	[root@server0 ~]# ifconfig | head -4
+
+	root@server0 ~]# ping6  2003:ac18::305
+
+=====================================================
+链路聚合
+	1.创建虚拟网卡team0  参考 man teamd.conf-->/example
+	nmcli connection add type team con-name team0 ifname team0 autoconnect yes config '{"runner": {"name": "activebackup"}}'
+	#nmcli connection  添加   类型为  team（组队）
+	配置文件名    team0  网卡名   team0
+	每次开机自起
+	工作模式   热备
+	删除：nmcli connection delete  创建虚拟网卡team0
+	2.添加成员：添加两个成员：eth1 eth2
+	[root@server0 ~]# nmcli connection add type team-slave con-name team0-1 ifname eth1 master team0
+	[root@server0 ~]# nmcli connection add type team-slave con-name team0-2 ifname eth2 master team0
+	#nmcli connection  添加 类型  team-成员
+	配置文件名为 team0-2 网卡名   eth2 主设备   team0
+	删除 nmcli connection delete  网卡名
+	3.配置IPteam0:
+	[root@server0 ~]# nmcli connection modify team0 ipv4.method manual ipv4.addresses 192.168.1.1/24 connection.autoconnect yes
+	4.激活配置：
+	[root@server0 ~]# nmcli connection up team0
+	[root@server0 ~]# nmcli connection up team0-1
+	[root@server0 ~]# nmcli connection up team0-2
+	5.验证：
+	[root@server0 ~]# teamdctl team0 state
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
