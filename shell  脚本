@@ -1,0 +1,350 @@
+Shell脚本基础
+	脚本：可以执行的一个文本文件，可以实现某种功能
+	[root@server0 ~]# vim /root/hello.sh
+	echo hello world
+	[root@server0 ~]# chmod +x  /root/hello.sh
+	[root@server0 ~]# /root/hello.sh    #绝对路径来运行		
+规范Shell脚本的一般组成
+	• #! 环境声明（以下所有代码利用哪一个程序解释）
+	• # 注释文本
+	• 可执行代码
+    案例1：
+	[root@server0 ~]# vim /root/hello.sh
+	#!/bin/bash
+	echo hello world
+	cat /etc/redhat-release
+	uname -r
+  	hostname
+ 	ifconfig | head -2
+	[root@server0 ~]# chmod +x /root/hello.sh
+	[root@server0 ~]# /root/hello.sh
+#################################################################################
+
+管道传递
+	– 将前一条命令的标准输出交给后一条命令处理
+    重定向输出
+	> :  只收集正确输出
+	2>：只收集错误输出
+	&>：正确输出与错误输出都收集
+案例：
+	[root@server0 ~]# echo 123456 > /opt/1.txt
+	[root@server0 ~]# cat  /opt/1.txt
+	[root@server0 ~]# cat  /etc /opt/1.txt
+	[root@server0 ~]# cat /etc/ /opt/1.txt > /opt/a.txt
+	[root@server0 ~]# cat /etc/ /opt/1.txt 2> /opt/a.txt
+	[root@server0 ~]# cat /etc/ /opt/1.txt &> /opt/a.txt
+
+     $[] :代表运算  +   -   *  /    %（取余数运算）
+案例：
+	[root@server0 ~]# echo $[3+1]
+	[root@server0 ~]# echo $[3-1]
+	[root@server0 ~]# echo $[3*2]
+	[root@server0 ~]# echo $[10/2]
+	[root@server0 ~]# echo $[10/3]    #默认取整
+	[root@server0 ~]# echo $[3-4
+	10 /  3  =  3      #10是被除数   3是除数    1是余数
+	余数一定小于除数 
+
+	'  ':取消所有字符特殊意义
+案例：
+	[root@server0 ~]# echo '*'
+	[root@server0 ~]# echo '* > ? []  {} % $'* > ? []  {} % $
+
+     $( ):将命令的输出，当作参数，参与其他命令执行
+案例：
+	[root@server0 ~]# date  +%F
+	[root@server0 ~]# cd /opt
+	[root@server0 opt]# mkdir nsd-$(date +%F)
+	[root@server0 opt]# mkdir $(hostname)
+	[root@server0 opt]# ls
+案例2：创建用户，并设置密码
+
+	黑洞设备:/dev/null
+
+	[root@server0 /]# vim /root/user.sh
+	#!/bin/bash
+	useradd nsd03 &> /dev/null
+	echo 用户nsd03创建成功
+	echo 123 | passwd --stdin nsd03 &> /dev/null
+	echo 用户nsd03密码设置成功
+
+	[root@server0 /]# chmod +x /root/user.sh
+	[root@server0 /]# /root/user.sh
+
+########################################################################################
+
+	为了增加脚本灵活度，适应多变的环境
+  	变量:会变化的量 ，以不变的名称存放的可以变化的值
+
+  	变量：容器     不变的是容器本身，存放内容可以变化
+	[root@server0 /]# vim /root/user.sh
+	[root@server0 /]# vim /root/user.sh
+ 	#!/bin/bash
+ 	a=zhangsan
+ 	useradd $a &> /dev/null
+ 	echo 用户$a创建成功
+ 	echo 123 | passwd --stdin $a &> /dev/null
+ 	echo 用户$a密码设置成功
+########################################################################################
+   变量的赋值
+	– 变量名=变量值
+	变量名要求
+	– 等号两边不要有空格
+	– 变量名只能由字母/数字/下划线组成,区分大小写
+	– 变量名不能以数字开头,不要使用关键字和特殊字符
+	– 若指定的变量名已存在,相当于为此变量重新赋值
+	 17. 下列变量名中有效的shell变量名是（ C  ）
+ 	A：-2-time			B：_2$3
+  	C：trust_no_1		D：2004file
+
+    使用变量的值
+	– 查看变量值:echo $变量名、echo ${变量名}
+	[root@server0 /]# a=rhel
+	[root@server0 /]# echo  $a
+	rhel
+	[root@server0 /]# echo  ${a}
+	rhel
+	[root@server0 /]# echo  $a7
+
+	[root@server0 /]# echo  ${a}7
+	rhel7
+	[root@server0 /]# b=zhang
+	[root@server0 /]# c=san
+	[root@server0 /]# echo $b$c
+
+####################################################################################
+   预定义变量:由系统定义完成，并且赋值完成，用户直接使用即可
+	$#  已加载的位置变量的个数,求和
+	$*  所有位置变量的值
+	root@server0 /]# vim /root/1.sh 
+	#!/bin/bash
+	[root@server0 /]# /root/1.sh haha xixi hehe lele miaomiao
+
+    $?  程序退出后的状态值,0表示正常,其他值异常
+	[root@server0 /]# cat /etc/redhat-release 
+	Red Hat Enterprise Linux Server release 7.0 (Maipo)
+	[root@server0 /]# echo $?
+	0
+	[root@server0 /]# cat /etc
+	cat: /etc: 是一个目录
+	[root@server0 /]# echo $?
+	1
+####################################################################################
+条件测试及选择判断
+	条件表达式：每一部分都要有空格
+	– [ 测试表达式 ]
+	• 检查文件状态
+	-e：文档存在为真
+	-d：存在且为目录为真
+	-f：存在且为文件为真
+	-r:文档存在且具备读取权限才为真
+	-w:文档存在且具备写入权限才为真
+	-x:文档存在且具备执行权限才为真
+	[root@server0 /]# [ -d /etc/passwd ]
+	[root@server0 /]# [ -e /etc/ ]
+	[root@server0 /]# [ -f /etc/passwd ]
+===========================================
+	• 比较整数大小( g代表大  l代表小  e代表等于)
+	-gt:大于
+	-ge:大于等于
+	-eq:等于
+	-ne:不等于
+	-lt:小于
+	-le:小于等于
+	[root@server0 /]# [ 0 -eq 1 ]        等于
+	[root@server0 /]# echo $?
+	1
+	[root@server0 /]# [ 0 -le 0 ]        小于等于
+	[root@server0 /]# echo $?
+	0
+	[root@server0 /]# [ 0 -gt 0 ]         大于
+	[root@server0 /]# echo $?
+	1
+	[root@server0 /]# [ 0 -ge 0 ]        大于等于
+	[root@server0 /]# echo $?
+	0
+	[root@server0 /]# [ 1 -ne 0 ]        不等于
+	[root@server0 /]# echo $?
+============================================
+	• 字符串比对
+     	== ：字符串相等为真
+     	!=：字符串不相等为真
+	[root@server0 /]# [ root == student  ]
+	[root@server0 /]# echo $?
+	1
+	[root@server0 /]# [ $USER == root ]
+	[root@server0 /]# echo $?
+	0
+	[root@server0 /]# [  a  !=  b ]
+	[root@server0 /]# echo $?
+	0
+==============================================
+	f选择结构
+
+	if双分支处理
+
+	if  [条件测试];then
+		命令序列xx
+	else
+		命令序列yy
+	fi
+
+	案例3： 测试IP地址脚本
+    	利用read读入用户输入IP地址，进行判断        
+    	如果本机能够ping，则输出可以通信
+    	如果本机不能够ping，则输出不可以通信
+
+	[root@server0 /]# vim /root/ip.sh
+	#!/bin/bash
+ 	read   -p   '请输入您要测试的IP地址:'     ip
+ 	ping -c 2  $ip  &> /dev/null
+ 	if  [ $? -eq 0 ];then
+  	 echo  可以通信
+ 	else
+  	 echo  不可以通信
+ 	fi
+	[root@server0 /]# 
+
+===================================================
+
+	for 循环体系，反复执行类似的操作
+	for 变量名 in 值列表
+	do
+	  命令序列（重复执行的操作）
+	done	
+
+	 [root@server0 ~]# vim /root/for01.sh
+	 #!/bin/bash
+	 for a in  zhangsan  lisi  wangwu  dc tc 
+	 do
+	    useradd $a
+	    echo $a成功创建
+	 done
+	
+	 [root@server0 ~]# chmod +x /root/for01.sh 
+	
+	 [root@server0 ~]# /root/for01.sh 
+	
+	 循环的列表值，可以不参与，循环执行的重复操作
+	 造数工具： {起始值..结束值}      {1..50}:产生1到50之间的数字
+	
+	[root@server0 /]# vim /root/for01.sh
+	 #!/bin/bash
+	 for a in {1..20}
+	 do
+	   echo hello world
+	 done
+	[root@server0 /]# 
+	
+	案例5: 猜数的脚本
+	  利用read实现
+	  计算机系统随机产生一个 0至9之间的数字
+	 用户输入 一个 0至9之间的数字
+	 判断，
+	 如果用户输入的数字与计算机系统随机产生的数字相等,则输出 恭喜您猜对了
+	 如果用户输入的数字与计算机系统随机产生的数字不相等
+	  则输出 用户输入的数字与计算机的数字的大小情况
+  
+	[root@server0 /]# vim  /root/num.sh
+	#!/bin/bash
+	num1=$[$RANDOM%10]
+	read -p  '请输入一个0至9之间的数字:'      num2
+	if  [  $num1  -eq  $num2  ];then
+	 echo 恭喜您猜对了
+	
+	elif [ $num2 -gt  $num1  ];then
+	 echo 抱歉您猜 大 了
+	 echo 正确的数字为$num1
+	
+	else
+	 echo 抱歉您猜 小 了
+	 echo 正确的数字为$num1
+	fi
+
+	在案例5的基础上，想要实现用户可以连续猜三次
+	[root@server0 /]# vim  /root/num.sh
+	 #!/bin/bash
+	 num1=$[$RANDOM%10]
+	 for a in {1..3}
+	 do
+	 read -p  '请输入一个0至9之间的数字:'      num2
+	 if  [  $num1  -eq  $num2  ];then
+	  echo 恭喜您猜对了
+	  exit                #退出整个脚本
+	 elif [ $num2 -gt  $num1  ];then
+	  echo 抱歉您猜 大 了
+	 else
+	  echo 抱歉您猜 小 了
+	 fi
+	 done
+	[root@server0 /]# 
+	
+案例：：：
+	
+	#!/bin/bash
+	if
+	[ $# -eq 0 ];then
+	echo '/root/1.sh redhat | fedora' >&2
+	exit  20
+	elif
+	[ $1 == redhat ];then
+	echo fedora
+	elif
+	[ $1 == fedhat ];then
+	echo redhat
+	else
+	echo '/root/1.sh redhat | fedora'  >&2 
+	exit  30
+	fi
+
+案例：：：
+
+	#!/bin/bash
+	if
+        [ $# -eq 0 ];then
+        echo 'Usage: /root/batchusers'  >&2
+        exit 2
+	elif
+        [ -f $1 ];then         文件存在且为真
+    for a in $(cat $1)
+    do
+        useradd -s /bin/false $a  &> /dev/null
+        echo  $a创建成功
+    done
+	else
+        echo 'Input file not found' >&2
+        exit 3
+	fi 
+#################################################################################
+环境变量：
+	环境变量:存储命令程序的路径
+   	PATH :为执行命令时，提供搜寻路径（在搜寻命令程序文件位置）
+
+	[root@server0 /]# vim /opt/hello.sh 
+	#!/bin/bash
+	echo hello world
+	[root@server0 /]# chmod +x /opt/hello.sh
+	[root@server0 /]# /opt/hello.sh
+
+	[root@server0 /]# hello.sh   #运行失败
+
+	[root@server0 /]# echo $PATH
+	[root@server0 /]# cp /opt/hello.sh  /usr/bin
+ 
+	[root@server0 /]# hello.sh   #运行成功
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
